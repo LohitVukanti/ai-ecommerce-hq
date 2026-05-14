@@ -21,8 +21,10 @@ const {
 } = require("../data/db");
 
 // Import our service files
-const { generateProductContent } = require("../services/aiService");
-const { createEtsyDraftListing } = require("../services/etsyService");
+const { generateProductContent }    = require("../services/aiService");
+const { createEtsyDraftListing }    = require("../services/etsyService");
+// NEW: Digital product generator — no AI API required, fully template-based
+const { generateDigitalProduct }    = require("../services/digitalProductService");
 
 // ============================================================
 // GET /api/products
@@ -125,6 +127,53 @@ router.post("/:id/generate-ai", async (req, res) => {
   } catch (error) {
     console.error("Error generating AI content:", error);
     res.status(500).json({ success: false, message: "Failed to generate AI content" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/generate-digital-product
+// ============================================================
+// Generates a real downloadable CSV file for this product using
+// a template matched to the product's title and category keywords.
+//
+// No OpenAI or paid API is used — all generation is local.
+// The file is saved to backend/generated-products/ which is
+// served statically by Express under /downloads/*.
+//
+// Metadata (filename, type, url, createdAt) is appended to
+// product.generatedFiles in SQLite so it survives restarts.
+//
+// Multiple calls are supported — each generates a new file and
+// appends a new entry to generatedFiles.
+// ============================================================
+router.post("/:id/generate-digital-product", async (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    console.log(`📄 Generating digital product CSV for: "${product.title}"`);
+
+    // Generate the CSV and write it to disk.
+    // generateDigitalProduct() returns metadata — it does NOT call any API.
+    const fileMetadata = generateDigitalProduct(product);
+
+    // Append the new file metadata to the product's existing generatedFiles array.
+    // This preserves any previously generated files.
+    const existingFiles = Array.isArray(product.generatedFiles) ? product.generatedFiles : [];
+    const updatedFiles  = [...existingFiles, fileMetadata];
+
+    // Persist the updated generatedFiles list to SQLite
+    const updatedProduct = updateProduct(req.params.id, {
+      generatedFiles: updatedFiles
+    });
+
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error generating digital product:", error);
+    res.status(500).json({ success: false, message: "Failed to generate digital product" });
   }
 });
 

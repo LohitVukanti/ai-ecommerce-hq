@@ -59,3 +59,11 @@ export const createEtsyDraft = (id) => request("POST", `/products/${id}/create-e
 
 /** Delete a product */
 export const deleteProduct = (id) => request("DELETE", `/products/${id}`);
+
+/**
+ * Generate a downloadable digital product (CSV) for a product.
+ * Uses template-based generation on the backend — no AI API required.
+ * Returns the updated product with the new file metadata in generatedFiles.
+ */
+export const generateDigitalProduct = (id) =>
+  request("POST", `/products/${id}/generate-digital-product`);

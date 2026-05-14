@@ -1,0 +1,3 @@
+# This file ensures the generated-products/ folder is tracked by git.
+# The actual .csv files generated here are ignored via .gitignore.
+# Do not delete this file.

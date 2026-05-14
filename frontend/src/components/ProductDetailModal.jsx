@@ -5,12 +5,20 @@
 // - Basic info
 // - All AI-generated content (scores, listing, design prompts)
 // - Action buttons (Generate AI, Approve, Create Etsy Draft)
+// - Digital Product Generator button + download links
 // ============================================================
 
 import React, { useState } from "react";
 import StatusBadge from "./StatusBadge";
 import ScoreMeter from "./ScoreMeter";
-import { generateAI, approveProduct, rejectProduct, createEtsyDraft, deleteProduct } from "../services/api";
+import {
+  generateAI,
+  approveProduct,
+  rejectProduct,
+  createEtsyDraft,
+  deleteProduct,
+  generateDigitalProduct   // NEW
+} from "../services/api";
 
 // Helper: A collapsible section for organizing content
 const Section = ({ title, icon, children, accent }) => (
@@ -102,7 +110,8 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
   const [product, setProduct] = useState(initialProduct);
 
   // Track which action is currently loading
-  const [loadingAction, setLoadingAction] = useState(null); // "ai" | "approve" | "reject" | "etsy"
+  // "ai" | "approve" | "reject" | "etsy" | "digital" | "delete"
+  const [loadingAction, setLoadingAction] = useState(null);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
 
@@ -122,10 +131,12 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
     }
   };
 
-  const handleGenerateAI  = () => runAction("ai",      generateAI);
-  const handleApprove     = () => runAction("approve", approveProduct);
-  const handleReject      = () => runAction("reject",  rejectProduct);
-  const handleEtsyDraft   = () => runAction("etsy",    createEtsyDraft);
+  const handleGenerateAI      = () => runAction("ai",      generateAI);
+  const handleApprove         = () => runAction("approve", approveProduct);
+  const handleReject          = () => runAction("reject",  rejectProduct);
+  const handleEtsyDraft       = () => runAction("etsy",    createEtsyDraft);
+  // NEW: triggers template-based CSV generation — no AI API used
+  const handleGenerateDigital = () => runAction("digital", generateDigitalProduct);
 
   const handleDelete = async () => {
     const confirmed = window.confirm(`Delete "${product.title}"? This cannot be undone.`);
@@ -150,8 +161,13 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
   const canApprove     = product.status === "listing_generated" && product.aiData;
   const canReject      = ["listing_generated", "approved"].includes(product.status);
   const canEtsyDraft   = product.status === "approved";
+  // Digital product can be generated at any stage — it's independent of AI / Etsy workflow
+  const canGenerateDigital = true;
 
   const ai = product.aiData; // Shorthand
+
+  // Safely resolve the generated files array (may be null/undefined on older records)
+  const generatedFiles = Array.isArray(product.generatedFiles) ? product.generatedFiles : [];
 
   return (
     <div
@@ -255,14 +271,27 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
               variant="danger"
             />
           )}
+
+          {/* NEW: Generate Digital Product button — always visible, independent of Etsy flow */}
+          {canGenerateDigital && (
+            <ActionButton
+              onClick={handleGenerateDigital}
+              loading={loadingAction === "digital"}
+              disabled={!!loadingAction}
+              icon="📄"
+              label={generatedFiles.length > 0 ? "Re-Generate CSV" : "Generate Digital Product"}
+              variant="secondary"
+            />
+          )}
+
           <ActionButton
-  onClick={handleDelete}
-  loading={loadingAction === "delete"}
-  disabled={!!loadingAction}
-  icon="🗑️"
-  label="Delete"
-  variant="danger"
-/>
+            onClick={handleDelete}
+            loading={loadingAction === "delete"}
+            disabled={!!loadingAction}
+            icon="🗑️"
+            label="Delete"
+            variant="danger"
+          />
         </div>
 
         {/* ---- Feedback Messages ---- */}
@@ -383,6 +412,101 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
               )}
             </Section>
           )}
+
+          {/* ---- NEW: Generated Digital Products Section ---- */}
+          {/* Shown whenever at least one file has been generated */}
+          {generatedFiles.length > 0 && (
+            <Section title="Generated Digital Products" icon="📁">
+              <div style={{
+                padding: "10px 14px",
+                background: "var(--success-dim)",
+                border: "1px solid var(--success)",
+                borderRadius: "var(--radius-sm)",
+                marginBottom: "14px",
+                color: "var(--success)",
+                fontSize: "13px",
+                display: "flex", alignItems: "center", gap: "8px"
+              }}>
+                ✅ {generatedFiles.length} file{generatedFiles.length !== 1 ? "s" : ""} generated — click a file to download it
+              </div>
+
+              {/* File list */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {generatedFiles.map((file, index) => (
+                  <a
+                    key={index}
+                    href={file.url}
+                    download={file.filename}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      padding: "12px 14px",
+                      background: "var(--bg-primary)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "var(--radius-sm)",
+                      textDecoration: "none",
+                      transition: "border-color 0.15s"
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; }}
+                  >
+                    {/* File icon */}
+                    <span style={{ fontSize: "22px", flexShrink: 0 }}>📊</span>
+
+                    {/* File info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: "13px",
+                        fontWeight: 700,
+                        color: "var(--text-primary)",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis"
+                      }}>
+                        {file.type}
+                      </div>
+                      <div style={{
+                        fontSize: "11px",
+                        color: "var(--text-muted)",
+                        fontFamily: "var(--font-display)",
+                        marginTop: "2px",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis"
+                      }}>
+                        {file.filename}
+                      </div>
+                      <div style={{
+                        fontSize: "10px",
+                        color: "var(--text-muted)",
+                        marginTop: "2px"
+                      }}>
+                        Created {new Date(file.createdAt).toLocaleDateString(undefined, {
+                          year: "numeric", month: "short", day: "numeric",
+                          hour: "2-digit", minute: "2-digit"
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Download label */}
+                    <span style={{
+                      fontSize: "11px",
+                      fontFamily: "var(--font-display)",
+                      fontWeight: 700,
+                      color: "var(--accent)",
+                      letterSpacing: "0.05em",
+                      textTransform: "uppercase",
+                      flexShrink: 0
+                    }}>
+                      ↓ CSV
+                    </span>
+                  </a>
+                ))}
+              </div>
+            </Section>
+          )}
+
         </div>
       </div>
     </div>

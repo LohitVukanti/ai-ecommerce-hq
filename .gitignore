@@ -10,3 +10,7 @@ frontend/dist/
 backend/data/*.sqlite
 backend/data/*.sqlite-shm
 backend/data/*.sqlite-wal
+
+# Generated digital product CSV files — kept on disk but not committed.
+# The folder itself (with .gitkeep) IS tracked so the directory exists on clone.
+backend/generated-products/*.csv

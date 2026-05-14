@@ -235,3 +235,116 @@ etsy_draft_created
 | Fonts    | Syne + DM Sans      |
 | AI       | OpenAI (official SDK; mock if no key or on API error)|
 | Etsy     | Etsy API v3 (mock)  |
+
+---
+
+## Digital Product Generator
+
+The Digital Product Generator creates real, downloadable CSV files for each product — **no AI API required**. Generation is entirely template-based and runs locally on the backend.
+
+### How It Works
+
+1. Open any product in the dashboard and click **"Generate Digital Product"** in the action bar.
+2. The backend examines the product's title and category for keywords.
+3. The best-matching CSV template is selected and rendered to a file.
+4. The file is saved permanently to `backend/generated-products/`.
+5. File metadata (filename, type, download URL, createdAt) is stored in SQLite inside `product.generatedFiles`.
+6. The modal immediately shows a download link — click it to get the CSV.
+
+You can click **"Re-Generate CSV"** as many times as you like. Each run appends a new file entry; previous downloads remain accessible.
+
+### Template Selection (Keyword Matching)
+
+| Template | Matched Keywords |
+|---|---|
+| Budget Planner | budget, finance, money, expense, spending, savings, financial |
+| Study Planner | study, student, academic, school, college, university, exam, homework, course, lecture |
+| Workout Tracker | workout, fitness, exercise, gym, training, muscle, cardio, strength, weight loss, health |
+| Habit Tracker | habit, routine, daily, tracker, productivity, goal, accountability, mindfulness, wellness |
+| Job Application Tracker | internship, job, application, career, resume, interview, hiring, recruitment, employment |
+| Generic Planner | *(fallback — used when no keywords match)* |
+
+### Where Files Are Stored
+
+```
+backend/
+└── generated-products/
+    ├── .gitkeep               ← keeps the folder in git
+    ├── abc123-1700000-budget-planner.csv
+    └── xyz789-1700001-workout-tracker.csv
+```
+
+Files are named `{productId}-{timestamp}-{title-slug}.csv` to guarantee uniqueness.  
+Generated files **persist across server restarts** — they are real files on disk, not in-memory.
+
+### How Downloads Work
+
+Express serves the `generated-products/` folder as a static directory at `/downloads/*`:
+
+```
+GET /downloads/abc123-1700000-budget-planner.csv
+```
+
+The `Content-Disposition: attachment` header is set automatically so browsers prompt a file download instead of opening the CSV in the browser tab.
+
+The Vite dev proxy forwards `/downloads/*` requests to `localhost:3001` just like `/api/*` requests — no additional proxy config needed as long as you add this to `vite.config.js`:
+
+```js
+// vite.config.js
+export default defineConfig({
+  server: {
+    proxy: {
+      "/api": "http://localhost:3001",
+      "/downloads": "http://localhost:3001"   // ← add this line
+    }
+  }
+});
+```
+
+### Verifying SQLite Metadata Persistence
+
+After generating a digital product:
+
+```bash
+# In the backend folder
+node -e "
+const db = require('./data/db');
+const products = db.getAllProducts();
+products.forEach(p => {
+  if (p.generatedFiles && p.generatedFiles.length > 0) {
+    console.log(p.title, '->', p.generatedFiles);
+  }
+});
+"
+```
+
+Restart the backend, then run the same command — the `generatedFiles` array should still be there.
+
+### API Route Reference (Digital Products)
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/api/products/:id/generate-digital-product` | Generate CSV and save metadata |
+| GET | `/downloads/:filename` | Download the generated CSV file |
+
+---
+
+## Updated Project Structure
+
+```
+ai-ecommerce-hq/
+├── backend/
+│   ├── generated-products/        ← Generated CSV files live here (persistent)
+│   │   └── .gitkeep
+│   ├── services/
+│   │   ├── aiService.js           ← Unchanged
+│   │   ├── etsyService.js         ← Unchanged
+│   │   └── digitalProductService.js  ← NEW: template-based CSV generator
+│   └── ...
+└── frontend/
+    └── src/
+        ├── services/
+        │   └── api.js             ← Added generateDigitalProduct()
+        └── components/
+            └── ProductDetailModal.jsx  ← Added button + download links
+```
