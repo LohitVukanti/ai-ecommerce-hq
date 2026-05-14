@@ -56,3 +56,6 @@ export const rejectProduct = (id) => request("POST", `/products/${id}/reject`);
 
 /** Create an Etsy draft for a product */
 export const createEtsyDraft = (id) => request("POST", `/products/${id}/create-etsy-draft`);
+
+/** Delete a product */
+export const deleteProduct = (id) => request("DELETE", `/products/${id}`);

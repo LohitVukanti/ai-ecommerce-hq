@@ -1,67 +1,200 @@
-// ============================================================
-// data/db.js — Simple In-Memory Database
-// ============================================================
-// This acts as our "database" for now. All products are stored
-// in a JavaScript array in memory. Data resets when the server
-// restarts. This is perfect for an MVP — swap it for a real DB
-// (MongoDB, PostgreSQL, etc.) later.
-// ============================================================
-
+const path = require("path");
+const Database = require("better-sqlite3");
 const { v4: uuidv4 } = require("uuid");
 
-// Our in-memory "table" of products
-let products = [
-  // ---- Sample product so the dashboard isn't empty on first load ----
-  {
-    id: uuidv4(),
-    title: "Personalized Star Map Print",
-    description: "A custom star map showing the night sky from any location and date. Perfect for anniversaries, birthdays, or new babies.",
-    category: "Digital Download",
-    status: "idea", // idea → researched → listing_generated → approved → etsy_draft_created → rejected
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    aiData: null,   // Filled in after AI generation
-    etsyDraft: null // Filled in after Etsy draft creation
+const dbPath = path.join(__dirname, "products.sqlite");
+const db = new Database(dbPath);
+
+db.pragma("journal_mode = WAL");
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS products (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    status TEXT NOT NULL,
+    aiData TEXT,
+    etsyDraft TEXT,
+    digitalProduct TEXT,
+    generatedFiles TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  )
+`);
+
+const parseJson = (value, fallback = null) => {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
   }
-];
+};
 
-// ---- Helper Functions ----
-// Think of these as simple database query functions
+const serializeJson = (value) => {
+  if (value === undefined || value === null) return null;
+  return JSON.stringify(value);
+};
 
-/** Get all products */
-const getAllProducts = () => products;
+const rowToProduct = (row) => {
+  if (!row) return null;
 
-/** Get a single product by its ID */
-const getProductById = (id) => products.find((p) => p.id === id);
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description || "",
+    category: row.category || "General",
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    aiData: parseJson(row.aiData, null),
+    etsyDraft: parseJson(row.etsyDraft, null),
+    digitalProduct: parseJson(row.digitalProduct, null),
+    generatedFiles: parseJson(row.generatedFiles, [])
+  };
+};
 
-/** Add a new product */
+const getAllProducts = () => {
+  const rows = db.prepare(`
+    SELECT * FROM products
+    ORDER BY datetime(createdAt) DESC
+  `).all();
+
+  return rows.map(rowToProduct);
+};
+
+const getProductById = (id) => {
+  const row = db.prepare(`
+    SELECT * FROM products
+    WHERE id = ?
+  `).get(id);
+
+  return rowToProduct(row);
+};
+
 const createProduct = (data) => {
+  const now = new Date().toISOString();
+
   const newProduct = {
     id: uuidv4(),
     title: data.title,
     description: data.description || "",
     category: data.category || "General",
     status: "idea",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
     aiData: null,
-    etsyDraft: null
+    etsyDraft: null,
+    digitalProduct: null,
+    generatedFiles: []
   };
-  products.push(newProduct);
+
+  db.prepare(`
+    INSERT INTO products (
+      id, title, description, category, status,
+      aiData, etsyDraft, digitalProduct, generatedFiles,
+      createdAt, updatedAt
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    newProduct.id,
+    newProduct.title,
+    newProduct.description,
+    newProduct.category,
+    newProduct.status,
+    serializeJson(newProduct.aiData),
+    serializeJson(newProduct.etsyDraft),
+    serializeJson(newProduct.digitalProduct),
+    serializeJson(newProduct.generatedFiles),
+    newProduct.createdAt,
+    newProduct.updatedAt
+  );
+
   return newProduct;
 };
 
-/** Update a product by ID with new fields */
 const updateProduct = (id, updates) => {
-  const index = products.findIndex((p) => p.id === id);
-  if (index === -1) return null;
+  const existing = getProductById(id);
+  if (!existing) return null;
 
-  products[index] = {
-    ...products[index],
+  const updatedProduct = {
+    ...existing,
     ...updates,
     updatedAt: new Date().toISOString()
   };
-  return products[index];
+
+  db.prepare(`
+    UPDATE products
+    SET
+      title = ?,
+      description = ?,
+      category = ?,
+      status = ?,
+      aiData = ?,
+      etsyDraft = ?,
+      digitalProduct = ?,
+      generatedFiles = ?,
+      updatedAt = ?
+    WHERE id = ?
+  `).run(
+    updatedProduct.title,
+    updatedProduct.description,
+    updatedProduct.category,
+    updatedProduct.status,
+    serializeJson(updatedProduct.aiData),
+    serializeJson(updatedProduct.etsyDraft),
+    serializeJson(updatedProduct.digitalProduct),
+    serializeJson(updatedProduct.generatedFiles),
+    updatedProduct.updatedAt,
+    id
+  );
+
+  return getProductById(id);
 };
 
-module.exports = { getAllProducts, getProductById, createProduct, updateProduct };
+const deleteProduct = (id) => {
+  const result = db.prepare(`
+    DELETE FROM products
+    WHERE id = ?
+  `).run(id);
+
+  return result.changes > 0;
+};
+
+const getAnalyticsSummary = () => {
+  const products = getAllProducts();
+
+  const productsByStatus = {};
+  const productsByCategory = {};
+
+  let estimatedRevenue = 0;
+
+  for (const product of products) {
+    productsByStatus[product.status] = (productsByStatus[product.status] || 0) + 1;
+    productsByCategory[product.category] = (productsByCategory[product.category] || 0) + 1;
+
+    if (product.aiData?.suggestedPrice) {
+      estimatedRevenue += Number(product.aiData.suggestedPrice) || 0;
+    }
+  }
+
+  return {
+    totalProducts: products.length,
+    approvedProducts: products.filter((p) => p.status === "approved").length,
+    etsyDrafts: products.filter((p) => p.status === "etsy_draft_created").length,
+    rejectedProducts: products.filter((p) => p.status === "rejected").length,
+    estimatedRevenue: Number(estimatedRevenue.toFixed(2)),
+    productsByStatus,
+    productsByCategory
+  };
+};
+
+module.exports = {
+  getAllProducts,
+  getProductById,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+  getAnalyticsSummary
+};

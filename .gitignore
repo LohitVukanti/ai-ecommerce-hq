@@ -7,3 +7,6 @@ frontend/.env
 dist/
 frontend/dist/
 .DS_Store
+backend/data/*.sqlite
+backend/data/*.sqlite-shm
+backend/data/*.sqlite-wal

@@ -11,7 +11,14 @@ const express = require("express");
 const router = express.Router();
 
 // Import our database helper functions
-const { getAllProducts, getProductById, createProduct, updateProduct } = require("../data/db");
+const {
+  getAllProducts,
+  getProductById,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+  getAnalyticsSummary
+} = require("../data/db");
 
 // Import our service files
 const { generateProductContent } = require("../services/aiService");
@@ -50,6 +57,20 @@ router.post("/", (req, res) => {
   } catch (error) {
     console.error("Error creating product:", error);
     res.status(500).json({ success: false, message: "Failed to create product" });
+  }
+});
+
+// ============================================================
+// GET /api/products/analytics/summary
+// Returns analytics summary for dashboard/reporting
+// ============================================================
+router.get("/analytics/summary", (req, res) => {
+  try {
+    const analytics = getAnalyticsSummary();
+    res.json({ success: true, data: analytics });
+  } catch (error) {
+    console.error("Error fetching analytics summary:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch analytics summary" });
   }
 });
 
@@ -198,6 +219,31 @@ router.post("/:id/create-etsy-draft", async (req, res) => {
   } catch (error) {
     console.error("Error creating Etsy draft:", error);
     res.status(500).json({ success: false, message: "Failed to create Etsy draft" });
+  }
+});
+
+// ============================================================
+// DELETE /api/products/:id
+// Deletes a product by ID
+// ============================================================
+router.delete("/:id", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const deleted = deleteProduct(req.params.id);
+
+    if (!deleted) {
+      return res.status(500).json({ success: false, message: "Failed to delete product" });
+    }
+
+    res.json({ success: true, data: { id: req.params.id } });
+  } catch (error) {
+    console.error("Error deleting product:", error);
+    res.status(500).json({ success: false, message: "Failed to delete product" });
   }
 });
 

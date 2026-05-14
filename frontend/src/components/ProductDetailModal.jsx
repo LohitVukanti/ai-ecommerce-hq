@@ -10,7 +10,7 @@
 import React, { useState } from "react";
 import StatusBadge from "./StatusBadge";
 import ScoreMeter from "./ScoreMeter";
-import { generateAI, approveProduct, rejectProduct, createEtsyDraft } from "../services/api";
+import { generateAI, approveProduct, rejectProduct, createEtsyDraft, deleteProduct } from "../services/api";
 
 // Helper: A collapsible section for organizing content
 const Section = ({ title, icon, children, accent }) => (
@@ -127,6 +127,24 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
   const handleReject      = () => runAction("reject",  rejectProduct);
   const handleEtsyDraft   = () => runAction("etsy",    createEtsyDraft);
 
+  const handleDelete = async () => {
+    const confirmed = window.confirm(`Delete "${product.title}"? This cannot be undone.`);
+    if (!confirmed) return;
+  
+    setLoadingAction("delete");
+    setError(null);
+  
+    try {
+      await deleteProduct(product.id);
+      onClose();
+      window.location.reload();
+    } catch (err) {
+      setError(err.message || "Failed to delete product");
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
   // Determine which action buttons to show based on current status
   const canGenerateAI  = ["idea", "researched", "listing_generated"].includes(product.status);
   const canApprove     = product.status === "listing_generated" && product.aiData;
@@ -237,6 +255,14 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
               variant="danger"
             />
           )}
+          <ActionButton
+  onClick={handleDelete}
+  loading={loadingAction === "delete"}
+  disabled={!!loadingAction}
+  icon="🗑️"
+  label="Delete"
+  variant="danger"
+/>
         </div>
 
         {/* ---- Feedback Messages ---- */}
