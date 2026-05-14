@@ -1,0 +1,164 @@
+/* ============================================================
+   index.css — Global Styles & Design System
+   ============================================================
+   Design direction: "Command Center" — dark, industrial, precise.
+   Like a mission control room for your e-commerce business.
+   Color palette: deep navy + amber accent + warm grays.
+   Typography: Syne (headers, labels) + DM Sans (body text)
+   ============================================================ */
+
+/* ---- CSS Variables (Design Tokens) ---- */
+:root {
+  /* Colors */
+  --bg-primary: #0d1117;       /* Almost black — main background */
+  --bg-secondary: #161b22;     /* Slightly lighter — card backgrounds */
+  --bg-tertiary: #1c2128;      /* Even lighter — inputs, hover states */
+  --bg-elevated: #21262d;      /* Modals, dropdowns */
+
+  --border: #30363d;           /* Subtle borders */
+  --border-light: #3d444d;     /* Lighter borders for hover */
+
+  --text-primary: #e6edf3;     /* Main text color */
+  --text-secondary: #8b949e;   /* Muted/secondary text */
+  --text-muted: #484f58;       /* Very muted, labels */
+
+  --accent: #f0a500;           /* Amber — primary action color */
+  --accent-hover: #d4921e;     /* Darker amber for hover */
+  --accent-dim: rgba(240, 165, 0, 0.12); /* Amber with opacity for backgrounds */
+
+  --success: #3fb950;          /* Green — for success states */
+  --success-dim: rgba(63, 185, 80, 0.12);
+  --danger: #f85149;           /* Red — for errors/rejections */
+  --danger-dim: rgba(248, 81, 73, 0.12);
+  --warning: #d29922;          /* Yellow — for warnings */
+  --warning-dim: rgba(210, 153, 34, 0.12);
+  --info: #58a6ff;             /* Blue — for info states */
+  --info-dim: rgba(88, 166, 255, 0.12);
+  --purple: #bc8cff;           /* Purple — for AI-related elements */
+  --purple-dim: rgba(188, 140, 255, 0.12);
+
+  /* Typography */
+  --font-display: "Syne", sans-serif;   /* Headers, buttons, labels */
+  --font-body: "DM Sans", sans-serif;   /* Body text, inputs */
+
+  /* Spacing */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+/* ---- Reset & Base ---- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Scrollbar Styling ---- */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ---- Typography ---- */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+/* ---- Links ---- */
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---- Buttons ---- */
+button {
+  font-family: var(--font-display);
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- Inputs ---- */
+input, textarea, select {
+  font-family: var(--font-body);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 10px 14px;
+  font-size: 14px;
+  width: 100%;
+  transition: border-color 0.15s ease;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--text-muted);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* ---- Utility Classes ---- */
+.text-muted { color: var(--text-secondary); }
+.text-accent { color: var(--accent); }
+.text-success { color: var(--success); }
+.text-danger { color: var(--danger); }
+
+/* ---- Loading Spinner ---- */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+}
+
+/* ---- Fade In Animation ---- */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeInUp 0.3s ease forwards;
+}
