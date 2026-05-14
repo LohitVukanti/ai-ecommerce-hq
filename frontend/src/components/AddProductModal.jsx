@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { createProduct } from "../services/api";
 
 const AddProductModal = ({ onClose, onProductAdded }) => {
@@ -7,9 +7,13 @@ const AddProductModal = ({ onClose, onProductAdded }) => {
   const [category, setCategory] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  /** Prevents duplicate submits (Enter in fields while request in flight; state may lag one frame). */
+  const submitInFlightRef = useRef(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading || submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -23,6 +27,7 @@ const AddProductModal = ({ onClose, onProductAdded }) => {
     } catch (err) {
       setError(err.message || "Could not create product");
     } finally {
+      submitInFlightRef.current = false;
       setLoading(false);
     }
   };

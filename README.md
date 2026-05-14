@@ -144,20 +144,26 @@ Open http://localhost:3000 in your browser. You should see the dashboard!
 
 ## Adding Your API Keys (When Ready)
 
-### OpenAI (for real AI content instead of mock data)
+### OpenAI (real AI content instead of mock data)
 
-1. Get a key at https://platform.openai.com/api-keys
-2. Copy `.env.example` to `.env` in the backend folder:
+1. Create an API key at [OpenAI Platform — API keys](https://platform.openai.com/api-keys).
+2. In the **backend** folder, create a file named `.env` (if you do not already have one).
+3. Add your secret key (never commit `.env` to git):
    ```bash
-   cd backend
-   cp .env.example .env
-   ```
-3. Open `.env` and uncomment the OpenAI line:
-   ```
+   # backend/.env
    OPENAI_API_KEY=sk-your-key-here
    ```
-4. In `services/aiService.js`, follow the TODO comments to wire up the real OpenAI call
-5. Restart the backend — it will automatically use real AI
+4. *(Optional)* Override the default chat model (defaults to `gpt-4o`):
+   ```bash
+   OPENAI_MODEL=gpt-4o-mini
+   ```
+5. From `backend/`, run `npm install` so the official `openai` package is installed, then start the server:
+   ```bash
+   cd backend
+   npm install
+   npm run dev
+   ```
+6. With `OPENAI_API_KEY` set, **Generate AI Content** uses the OpenAI API and returns structured JSON matching the dashboard. If the key is missing, or the API call fails, the backend **falls back to mock data** so the UI keeps working; check the server logs for error details.
 
 ### Etsy (for real listing creation)
 
@@ -207,7 +213,7 @@ etsy_draft_created
 
 ## Future Improvements (TODO)
 
-- [ ] Real OpenAI API integration (see `services/aiService.js`)
+- [x] Real OpenAI API integration (`services/aiService.js` — set `OPENAI_API_KEY` in `backend/.env`)
 - [ ] Real Etsy OAuth 2.0 flow (see `services/etsyService.js`)
 - [ ] Persist data to a real database (MongoDB or PostgreSQL)
 - [ ] User authentication (login/signup)
@@ -227,5 +233,5 @@ etsy_draft_created
 | Database | In-memory (for now) |
 | Styling  | Pure CSS + variables|
 | Fonts    | Syne + DM Sans      |
-| AI       | OpenAI GPT-4o (mock)|
+| AI       | OpenAI (official SDK; mock if no key or on API error)|
 | Etsy     | Etsy API v3 (mock)  |

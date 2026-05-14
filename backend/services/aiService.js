@@ -1,91 +1,298 @@
 // ============================================================
 // services/aiService.js — AI Research & Listing Generator
 // ============================================================
-// This service handles all AI-powered content generation.
-//
-// HOW IT WORKS:
-//   - If OPENAI_API_KEY is set in your .env file → calls real OpenAI API
-//   - If no API key → returns realistic mock data so the app still works
-//
-// TODO (when ready for real AI):
-//   1. Copy .env.example to .env
-//   2. Add your OpenAI key: OPENAI_API_KEY=sk-...
-//   3. The app will automatically switch to real AI
+// - If OPENAI_API_KEY is set in backend/.env → calls OpenAI (JSON mode)
+// - If the key is missing OR the API call fails → mock data (app keeps working)
 // ============================================================
 
-// TODO: Uncomment this when you add your OpenAI key
-// const OpenAI = require("openai");
+const OpenAI = require("openai");
+
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o";
+
+/** @returns {OpenAI|null} */
+const getClient = () => {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key || !String(key).trim()) return null;
+  return new OpenAI({ apiKey: key.trim() });
+};
 
 /**
  * Generate all AI content for a product idea.
- * @param {string} title - The product title/idea
- * @param {string} description - Optional extra details about the product
- * @returns {object} - Full AI-generated research and listing data
+ * @param {string} title
+ * @param {string} description
+ * @returns {Promise<object>}
  */
 const generateProductContent = async (title, description) => {
-  // Check if a real OpenAI API key exists
-  if (process.env.OPENAI_API_KEY) {
+  if (getClient()) {
     return await generateWithOpenAI(title, description);
+  }
+  console.log("ℹ️  No OpenAI key found — using mock data. See README for OPENAI_API_KEY.");
+  return generateMockData(title, description);
+};
+
+// ============================================================
+// OpenAI — structured JSON (must match frontend expectations)
+// ============================================================
+
+const SYSTEM_PROMPT = `You are an expert Etsy seller and e-commerce researcher.
+You MUST respond with a single valid JSON object only (no markdown fences, no commentary).
+All string fields must be non-empty strings suitable for a real listing.
+Scores must be integers from 1 through 10 inclusive.
+etsyTags must be an array of exactly 13 strings (Etsy allows up to 13 tags). Each tag: lowercase, 1-20 characters, letters/numbers/spaces only where natural — prefer short keyword-style tags.
+suggestedPrice must be a positive number in USD (can use decimals).`;
+
+const buildUserPrompt = (title, description) => {
+  const t = String(title || "").trim();
+  const d = String(description || "").trim();
+  return `Analyze this product idea and return ONE JSON object with EXACTLY these keys:
+
+{
+  "buyerPersona": string,
+  "demandScore": number (1-10),
+  "competitionScore": number (1-10, 10 = most competitive),
+  "originalityScore": number (1-10),
+  "copyrightRiskScore": number (1-10, 10 = highest risk),
+  "suggestedPrice": number (USD),
+  "etsyTitle": string (SEO Etsy title, max 140 characters),
+  "etsyTags": string[] (exactly 13 tags),
+  "etsyDescription": string (full Etsy listing body, can use line breaks),
+  "designPrompt": string (detailed prompt for AI image generation),
+  "canvaInstructions": string (step-by-step Canva mockup instructions)
+}
+
+Product title: ${JSON.stringify(t)}
+Additional details: ${JSON.stringify(d || "None provided.")}`;
+};
+
+/**
+ * Strip optional ```json fences from model output.
+ * @param {string} raw
+ */
+const extractJsonText = (raw) => {
+  if (!raw || typeof raw !== "string") return "";
+  let s = raw.trim();
+  const m = s.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
+  if (m) s = m[1].trim();
+  return s;
+};
+
+const clampScore = (value) => {
+  const n = Math.round(Number(value));
+  if (Number.isNaN(n)) return 5;
+  return Math.min(10, Math.max(1, n));
+};
+
+const ETSY_TAG_MAX_LEN = 20;
+
+/**
+ * Ensure exactly 13 non-empty tags, each truncated for Etsy limits.
+ * @param {unknown} tags
+ * @param {string} titleSeed
+ */
+const normalizeEtsyTags = (tags, titleSeed) => {
+  const padPool = [
+    "personalized gift",
+    "custom design",
+    "unique gift",
+    "handmade",
+    "gift idea",
+    "made to order",
+    "small business",
+    "etsy finds",
+    "home decor",
+    "special occasion",
+    "creative gift",
+    "custom order",
+    "artisan"
+  ];
+
+  const seedWords = String(titleSeed || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3)
+    .slice(0, 12);
+
+  const sanitize = (t) =>
+    String(t || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .slice(0, ETSY_TAG_MAX_LEN);
+
+  const out = [];
+  const seen = new Set();
+
+  if (Array.isArray(tags)) {
+    for (const t of tags) {
+      const c = sanitize(t);
+      if (c && !seen.has(c)) {
+        seen.add(c);
+        out.push(c);
+      }
+      if (out.length >= 13) return out.slice(0, 13);
+    }
+  }
+
+  const fillers = [...seedWords, ...padPool];
+  let fi = 0;
+  while (out.length < 13) {
+    const base = fillers[fi % fillers.length] || `gift ${out.length + 1}`;
+    fi += 1;
+    let c = sanitize(base);
+    if (!c) c = `tag${out.length + 1}`.slice(0, ETSY_TAG_MAX_LEN);
+    let bump = 0;
+    while (seen.has(c) && bump < 50) {
+      bump += 1;
+      c = sanitize(`${base} ${bump}`);
+      if (!c || c.length < 2) c = `item${out.length}${bump}`.slice(0, ETSY_TAG_MAX_LEN);
+    }
+    if (!seen.has(c)) {
+      seen.add(c);
+      out.push(c);
+    } else {
+      let uniq = `g${out.length}${fi}${String(Date.now()).slice(-6)}`.slice(0, ETSY_TAG_MAX_LEN);
+      let guard = 0;
+      while (seen.has(uniq) && guard < 20) {
+        guard += 1;
+        uniq = `tag${out.length}${guard}${fi}`.slice(0, ETSY_TAG_MAX_LEN);
+      }
+      seen.add(uniq);
+      out.push(uniq);
+    }
+  }
+
+  return out.slice(0, 13);
+};
+
+/**
+ * Coerce API JSON into the exact shape the frontend expects.
+ * @param {object} raw
+ * @param {string} title
+ * @param {string} description
+ */
+const validateAndNormalizeAIResult = (raw, title, description) => {
+  const cleanTitle = String(title || "").trim();
+
+  const buyerPersona =
+    typeof raw.buyerPersona === "string" && raw.buyerPersona.trim()
+      ? raw.buyerPersona.trim()
+      : `The ideal buyer for "${cleanTitle}" values quality and personalization.`;
+
+  const demandScore = clampScore(raw.demandScore);
+  const competitionScore = clampScore(raw.competitionScore);
+  const originalityScore = clampScore(raw.originalityScore);
+  const copyrightRiskScore = clampScore(raw.copyrightRiskScore);
+
+  let suggestedPrice = Number(raw.suggestedPrice);
+  if (Number.isNaN(suggestedPrice) || suggestedPrice <= 0) {
+    suggestedPrice = parseFloat((Math.random() * 30 + 15).toFixed(2));
   } else {
-    console.log("ℹ️  No OpenAI key found — using mock data. See .env.example to add your key.");
+    suggestedPrice = Math.round(suggestedPrice * 100) / 100;
+  }
+
+  let etsyTitle =
+    typeof raw.etsyTitle === "string" && raw.etsyTitle.trim()
+      ? raw.etsyTitle.trim()
+      : `${cleanTitle} | Personalized Gift | Handmade`;
+  if (etsyTitle.length > 140) etsyTitle = etsyTitle.slice(0, 137) + "...";
+
+  const etsyTags = normalizeEtsyTags(raw.etsyTags, cleanTitle);
+
+  const etsyDescription =
+    typeof raw.etsyDescription === "string" && raw.etsyDescription.trim()
+      ? raw.etsyDescription.trim()
+      : `Discover ${cleanTitle} — a thoughtful, unique find on Etsy.\n\n${String(description || "").trim()}`;
+
+  const designPrompt =
+    typeof raw.designPrompt === "string" && raw.designPrompt.trim()
+      ? raw.designPrompt.trim()
+      : `High-quality product mockup for "${cleanTitle}", soft natural light, neutral background, 4K, photorealistic.`;
+
+  const canvaInstructions =
+    typeof raw.canvaInstructions === "string" && raw.canvaInstructions.trim()
+      ? raw.canvaInstructions.trim()
+      : `CANVA: Create a 2000×2000 px design for "${cleanTitle}", center product, subtle shadow, export PNG.`;
+
+  return {
+    buyerPersona,
+    demandScore,
+    competitionScore,
+    originalityScore,
+    copyrightRiskScore,
+    suggestedPrice,
+    etsyTitle,
+    etsyTags,
+    etsyDescription,
+    designPrompt,
+    canvaInstructions
+  };
+};
+
+const generateWithOpenAI = async (title, description) => {
+  const client = getClient();
+  if (!client) {
+    return generateMockData(title, description);
+  }
+
+  try {
+    const response = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      temperature: 0.65,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: buildUserPrompt(title, description) }
+      ]
+    });
+
+    const content = response.choices?.[0]?.message?.content;
+    const jsonText = extractJsonText(content || "");
+    if (!jsonText) {
+      throw new Error("OpenAI returned empty content");
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch (e) {
+      throw new Error(`OpenAI JSON parse failed: ${e.message}`);
+    }
+
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("OpenAI returned non-object JSON");
+    }
+
+    const normalized = validateAndNormalizeAIResult(parsed, title, description);
+
+    if (normalized.etsyTags.length !== 13) {
+      throw new Error(`Expected 13 Etsy tags after normalization, got ${normalized.etsyTags.length}`);
+    }
+
+    ["demandScore", "competitionScore", "originalityScore", "copyrightRiskScore"].forEach((k) => {
+      const v = normalized[k];
+      if (typeof v !== "number" || v < 1 || v > 10) {
+        throw new Error(`Invalid score ${k}: ${v}`);
+      }
+    });
+
+    console.log(`✅ OpenAI generation OK (model ${OPENAI_MODEL}) for: "${String(title).slice(0, 60)}..."`);
+    return normalized;
+  } catch (err) {
+    const msg = err?.message || String(err);
+    console.error("❌ OpenAI generation failed — falling back to mock data:", msg);
+    if (err?.status) console.error("   HTTP status:", err.status);
     return generateMockData(title, description);
   }
 };
 
 // ============================================================
-// REAL OpenAI Integration (activated when API key is present)
-// ============================================================
-const generateWithOpenAI = async (title, description) => {
-  // TODO: Install openai package: npm install openai
-  // TODO: Uncomment the OpenAI setup at the top of this file
-  //
-  // const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  //
-  // const prompt = `
-  //   You are an expert Etsy seller and e-commerce researcher.
-  //   Analyze this product idea and return a JSON object with these exact fields:
-  //
-  //   Product: "${title}"
-  //   Details: "${description}"
-  //
-  //   Return ONLY valid JSON with these fields:
-  //   {
-  //     "buyerPersona": "detailed description of ideal buyer",
-  //     "demandScore": number 1-10,
-  //     "competitionScore": number 1-10 (10 = most competitive),
-  //     "originalityScore": number 1-10,
-  //     "copyrightRiskScore": number 1-10 (10 = highest risk),
-  //     "suggestedPrice": number in USD,
-  //     "etsyTitle": "SEO-optimized Etsy listing title under 140 chars",
-  //     "etsyTags": ["tag1", "tag2", ... 13 tags total],
-  //     "etsyDescription": "full Etsy listing description",
-  //     "designPrompt": "detailed prompt for AI image generation",
-  //     "canvaInstructions": "step-by-step Canva mockup instructions"
-  //   }
-  // `;
-  //
-  // const response = await openai.chat.completions.create({
-  //   model: "gpt-4o",
-  //   messages: [{ role: "user", content: prompt }],
-  //   response_format: { type: "json_object" }
-  // });
-  //
-  // return JSON.parse(response.choices[0].message.content);
-
-  // Fallback until fully implemented
-  console.warn("⚠️  OpenAI key found but integration not yet wired up. Using mock data.");
-  return generateMockData(title, description);
-};
-
-// ============================================================
-// MOCK Data Generator (used when no OpenAI key is present)
+// MOCK Data Generator (no API key or OpenAI failure fallback)
 // ============================================================
 const generateMockData = (title, description) => {
-  // These are realistic-looking results so you can test the full UI flow
   const cleanTitle = title.trim();
 
   return {
-    // Who would buy this product?
     buyerPersona:
       `The ideal buyer for "${cleanTitle}" is a creative, gift-focused shopper aged 25–45 who ` +
       `values personalization and uniqueness. They often shop for meaningful gifts for milestones ` +
@@ -93,19 +300,15 @@ const generateMockData = (title, description) => {
       `to favorites, and are willing to pay a premium for handmade or custom items. They respond ` +
       `well to lifestyle photography and clear customization options.`,
 
-    // Scores out of 10
-    demandScore: Math.floor(Math.random() * 3) + 7,         // 7–9 (good demand)
-    competitionScore: Math.floor(Math.random() * 4) + 4,    // 4–7 (moderate competition)
-    originalityScore: Math.floor(Math.random() * 3) + 6,    // 6–8 (fairly original)
-    copyrightRiskScore: Math.floor(Math.random() * 3) + 1,  // 1–3 (low risk)
+    demandScore: Math.floor(Math.random() * 3) + 7,
+    competitionScore: Math.floor(Math.random() * 4) + 4,
+    originalityScore: Math.floor(Math.random() * 3) + 6,
+    copyrightRiskScore: Math.floor(Math.random() * 3) + 1,
 
-    // Pricing suggestion in USD
-    suggestedPrice: parseFloat((Math.random() * 30 + 15).toFixed(2)), // $15–$45
+    suggestedPrice: parseFloat((Math.random() * 30 + 15).toFixed(2)),
 
-    // Etsy listing title (max 140 characters, SEO-focused)
     etsyTitle: `${cleanTitle} | Personalized Gift | Custom Design | Unique Handmade Art | Perfect for Any Occasion`,
 
-    // Exactly 13 Etsy tags (Etsy's maximum)
     etsyTags: [
       "personalized gift",
       "custom design",
@@ -122,7 +325,6 @@ const generateMockData = (title, description) => {
       "etsy bestseller"
     ],
 
-    // Full Etsy listing description
     etsyDescription:
       `✨ ${cleanTitle} — The Perfect Personalized Gift!\n\n` +
       `Looking for something truly unique? Our ${cleanTitle} is thoughtfully crafted to delight ` +
@@ -144,7 +346,6 @@ const generateMockData = (title, description) => {
       `4. Approve and we ship or deliver!\n\n` +
       `Questions? Message us anytime — we love helping customers find the perfect gift. ❤️`,
 
-    // Prompt for AI image generation tools (Midjourney, DALL-E, Stable Diffusion)
     designPrompt:
       `Create a high-quality product mockup for "${cleanTitle}". Style: clean, modern, ` +
       `lifestyle photography aesthetic. Background: soft neutral tones (warm white or light grey). ` +
@@ -153,7 +354,6 @@ const generateMockData = (title, description) => {
       `surface). Resolution: 4K, sharp details. Color palette: warm, inviting, premium feel. ` +
       `No text overlays. Photorealistic style.`,
 
-    // Step-by-step Canva instructions
     canvaInstructions:
       `CANVA MOCKUP INSTRUCTIONS FOR: ${cleanTitle}\n\n` +
       `1. Open Canva.com and click "Create a design"\n` +
