@@ -1,13 +1,18 @@
 import React, { useState } from "react";
 import Dashboard from "./pages/Dashboard";
 import IdeasResearch from "./pages/IdeasResearch";
+import PrivateAccessGate from "./components/PrivateAccessGate";
 
 export default function App() {
   const [page, setPage] = useState("products");
 
-  if (page === "ideas") {
-    return <IdeasResearch onBack={() => setPage("products")} />;
-  }
-
-  return <Dashboard onOpenIdeas={() => setPage("ideas")} />;
+  return (
+    <PrivateAccessGate>
+      {page === "ideas" ? (
+        <IdeasResearch onBack={() => setPage("products")} />
+      ) : (
+        <Dashboard onOpenIdeas={() => setPage("ideas")} />
+      )}
+    </PrivateAccessGate>
+  );
 }

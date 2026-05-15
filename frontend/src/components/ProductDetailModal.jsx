@@ -19,7 +19,8 @@ import {
   rejectProduct,
   createEtsyDraft,
   deleteProduct,
-  generateDigitalProduct   // NEW
+  generateDigitalProduct,
+  resolveDownloadUrl
 } from "../services/api";
 
 // Helper: A collapsible section for organizing content
@@ -445,7 +446,7 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
                 {generatedFiles.map((file, index) => (
                   <a
                     key={index}
-                    href={file.url}
+                    href={resolveDownloadUrl(file.url)}
                     download={file.filename}
                     style={{
                       display: "flex",

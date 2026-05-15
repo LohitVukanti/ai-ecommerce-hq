@@ -36,7 +36,7 @@ Once **listing** and **POD prep** exist for the **selected concept**, **Generate
 ai-ecommerce-hq/
 ├── backend/                   ← Node.js + Express API
 │   ├── server.js              ← Entry point — starts the server
-│   ├── .env.example           ← Copy this to .env for API keys
+│   ├── .env.example           ← Copy to .env for API keys / CORS / PORT
 │   ├── package.json
 │   ├── routes/
 │   │   ├── products.js        ← All /api/products endpoints
@@ -53,6 +53,7 @@ ai-ecommerce-hq/
 │       └── products.sqlite    ← Created automatically (gitignored)
 │
 └── frontend/                  ← React + Vite app
+    ├── .env.example           ← VITE_API_BASE_URL, VITE_APP_PASSWORD (optional)
     ├── index.html
     ├── vite.config.js
     ├── package.json
@@ -61,11 +62,12 @@ ai-ecommerce-hq/
         ├── App.jsx             ← Root component
         ├── index.css           ← Global styles
         ├── services/
-        │   └── api.js          ← All API calls to the backend
+        │   └── api.js          ← All API calls (VITE_API_BASE_URL in production)
         ├── pages/
         │   ├── Dashboard.jsx     ← Product pipeline dashboard
         │   └── IdeasResearch.jsx ← Ideas intake + scoring UI
         └── components/
+            ├── PrivateAccessGate.jsx ← Optional VITE_APP_PASSWORD gate
             ├── AddProductModal.jsx
             ├── AddIdeaModal.jsx
             ├── IdeaCard.jsx
@@ -151,6 +153,46 @@ You should see:
 ```
 
 Open http://localhost:3000 in your browser. You should see the dashboard!
+
+---
+
+## Private deployment (Vercel + Render)
+
+This stack is suitable for a **demo or private MVP**: SQLite and generated CSVs live on the **Render** instance’s disk (ephemeral on free tier — acceptable for trials). For multi-instance or durable data, plan **Postgres (e.g. Supabase)** and object storage for files later.
+
+**Important:** Do not enable real **OpenAI**, **Etsy**, or **Printify** keys until you are ready; the app runs in template/mock modes without them.
+
+### Backend (Render)
+
+1. Create a **Web Service** from this repo; root directory `backend`, build `npm install`, start `npm start`.
+2. Set environment variables:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PORT` | No | Render injects this automatically. |
+| `CLIENT_ORIGIN` | **Recommended** | Your Vercel URL, e.g. `https://your-project.vercel.app`. Comma-separate multiple origins (e.g. preview + production). |
+| `OPENAI_API_KEY` | No | Optional; mock AI if omitted. |
+| `OPENAI_MODEL` | No | Optional model override. |
+
+3. Health check path: `GET /api/health` (optional in Render dashboard).
+4. **SQLite** file and **`generated-products/`** CSVs are **local to that service** — redeploys or multiple instances can lose or split data; document that for stakeholders.
+
+### Frontend (Vercel)
+
+1. Create a project; root directory `frontend`, framework **Vite**, build `npm run build`, output `dist`.
+2. Set environment variables (Vercel → Settings → Environment Variables):
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VITE_API_BASE_URL` | **Yes (prod)** | Render API base including `/api`, e.g. `https://your-api.onrender.com/api`. Omit locally so `/api` + Vite proxy still work. |
+| `VITE_APP_PASSWORD` | No | If set, users see a **shared password screen** once per browser (`localStorage`). Not full auth; password is embedded in the client bundle — fine for casual private demos only. |
+
+3. Redeploy after changing `VITE_*` variables (they are applied at build time).
+
+### Local verification after configuring env
+
+- **API URL:** With no `VITE_API_BASE_URL`, `npm run dev` still uses `/api` via `vite.config.js`.
+- **Password gate:** Set `VITE_APP_PASSWORD=test` in `frontend/.env.local`, restart `npm run dev`, confirm the gate appears; submit `test` and confirm `localStorage` unlock persists on refresh. Remove the variable to return to normal.
 
 ---
 

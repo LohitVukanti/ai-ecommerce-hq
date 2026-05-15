@@ -5,9 +5,23 @@
 // This keeps API logic in one place — easy to update later.
 // ============================================================
 
-// Base URL for all API requests
-// In development, Vite proxies /api requests to localhost:3001
-const BASE_URL = "/api";
+// Base URL for API requests:
+// - Local dev: default "/api" (Vite proxy → backend)
+// - Production (Vercel etc.): set VITE_API_BASE_URL to your Render API root, e.g. https://your-api.onrender.com/api
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
+
+/**
+ * Resolve a backend-relative URL (e.g. /downloads/...) for production when the API lives on another origin.
+ */
+export function resolveDownloadUrl(urlPath) {
+  if (!urlPath || /^https?:\/\//i.test(urlPath)) return urlPath;
+  const raw = (import.meta.env.VITE_API_BASE_URL || "").trim();
+  if (!raw || raw === "/api") return urlPath;
+  const origin = raw.replace(/\/api\/?$/i, "").replace(/\/$/, "");
+  if (!origin) return urlPath;
+  const path = urlPath.startsWith("/") ? urlPath : `/${urlPath}`;
+  return `${origin}${path}`;
+}
 
 /**
  * Helper function to make API requests.
@@ -23,7 +37,8 @@ const request = async (method, path, body = null) => {
     options.body = JSON.stringify(body);
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, options);
+  const urlPath = path.startsWith("/") ? path : `/${path}`;
+  const response = await fetch(`${API_BASE_URL}${urlPath}`, options);
   const data = await response.json();
 
   // If the backend returned an error, throw it so callers can handle it

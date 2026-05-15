@@ -19,9 +19,44 @@ const ideaRoutes = require("./routes/ideas");
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
+const isLocalDevOrigin = (origin) => {
+  if (!origin) return true;
+  try {
+    const u = new URL(origin);
+    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return true;
+  } catch {
+    return false;
+  }
+  return false;
+};
+
+const parseClientOrigins = () => {
+  const raw = process.env.CLIENT_ORIGIN;
+  if (!raw || !String(raw).trim()) return [];
+  return String(raw)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+};
+
 // ---- Middleware ----
-// Allow requests from our React frontend (running on a different port)
-app.use(cors());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || isLocalDevOrigin(origin)) {
+        return callback(null, true);
+      }
+      const allowed = parseClientOrigins();
+      if (allowed.length === 0) {
+        return callback(null, true);
+      }
+      if (allowed.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
+    }
+  })
+);
 // Parse incoming JSON request bodies
 app.use(express.json());
 
@@ -61,7 +96,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // ---- Start Server ----
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`\n🚀 Backend server running at http://localhost:${PORT}`);
   console.log(`   Health check:    http://localhost:${PORT}/api/health`);
   console.log(`   Products API:    http://localhost:${PORT}/api/products`);
