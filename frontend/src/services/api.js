@@ -91,6 +91,10 @@ export const generatePodListing = (id, conceptId = null) =>
 export const generatePodPrep = (id) =>
   request("POST", `/products/${id}/generate-pod-prep`);
 
+/** Design / mockup / social prompt package (template; requires listing + POD prep) */
+export const generateDesignPackage = (id) =>
+  request("POST", `/products/${id}/generate-design-package`);
+
 // ---- Ideas / research intake API (SQLite-backed on the server) ----
 
 /** Fetch ideas; optional filters match GET /api/ideas query params */

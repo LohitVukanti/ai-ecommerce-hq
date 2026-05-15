@@ -471,6 +471,7 @@ module.exports = {
   generatePodConcepts,
   buildPodListingFromConcept,
   buildPodPrepFromConcept,
+  inferPodProductShape,
   sanitizeCopy,
   AESTHETICS
 };

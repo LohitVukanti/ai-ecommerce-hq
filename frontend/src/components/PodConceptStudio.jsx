@@ -8,7 +8,8 @@ import {
   selectProductConcept,
   rejectProductConcept,
   generatePodListing,
-  generatePodPrep
+  generatePodPrep,
+  generateDesignPackage
 } from "../services/api";
 
 const SectionHeader = ({ title, icon }) => (
@@ -61,6 +62,15 @@ const PodConceptStudio = ({ product, onProductChange }) => {
   const concepts = Array.isArray(product.generatedConcepts) ? product.generatedConcepts : [];
   const listing = product.listingData;
   const podPrep = product.podPrep;
+  const designPackage = product.designPackage;
+
+  const canDesignPackage = Boolean(
+    product.selectedConceptId &&
+    listing &&
+    listing.etsyTitle &&
+    podPrep &&
+    podPrep.id
+  );
 
   const run = async (key, fn) => {
     setLoading(key);
@@ -426,9 +436,267 @@ const PodConceptStudio = ({ product, onProductChange }) => {
             </div>
           )}
         </div>
+
+        {/* ---- AI Design / Mockup Studio (template prep) ---- */}
+        <div style={{
+          borderTop: "2px solid rgba(139, 92, 246, 0.35)",
+          paddingTop: "18px",
+          marginTop: "16px",
+          background: "linear-gradient(180deg, rgba(139, 92, 246, 0.06) 0%, transparent 120px)"
+        }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            marginBottom: "10px",
+            flexWrap: "wrap"
+          }}>
+            <span style={{ fontSize: "22px" }}>🎨</span>
+            <div>
+              <div style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 800,
+                fontSize: "14px",
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: "var(--purple)"
+              }}>
+                Design package studio
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
+                Preparation layer — structured prompts for art, mockups, and social. No image APIs yet; export JSON-shaped prompts for future DALL·E / SDXL / Ideogram workflows.
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            title={
+              !canDesignPackage
+                ? "Requires selected concept + POD listing + POD prep"
+                : undefined
+            }
+            onClick={() => run("designPkg", () => generateDesignPackage(product.id))}
+            disabled={!!loading || !canDesignPackage}
+            style={{
+              padding: "10px 20px",
+              background: canDesignPackage ? "var(--purple)" : "var(--bg-primary)",
+              color: canDesignPackage ? "#0d1117" : "var(--text-muted)",
+              border: "1px solid rgba(139, 92, 246, 0.45)",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "13px",
+              fontWeight: 800,
+              marginBottom: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              boxShadow: canDesignPackage ? "0 0 20px rgba(139, 92, 246, 0.15)" : "none"
+            }}
+          >
+            {loading === "designPkg" ? <span className="spinner" /> : <span>✨</span>}
+            {loading === "designPkg" ? "Generating…" : "Generate Design Package"}
+          </button>
+
+          {designPackage && (
+            <div style={{
+              border: "1px solid rgba(139, 92, 246, 0.3)",
+              borderRadius: "var(--radius-md)",
+              overflow: "hidden",
+              background: "var(--bg-primary)"
+            }}>
+              <div style={{
+                padding: "10px 14px",
+                background: "rgba(139, 92, 246, 0.12)",
+                borderBottom: "1px solid var(--border)",
+                fontSize: "11px",
+                color: "var(--text-secondary)"
+              }}>
+                Package id <span style={{ fontFamily: "monospace" }}>{designPackage.id?.slice(0, 10)}…</span>
+                {" · "}
+                <span style={{ color: "var(--success)" }}>
+                  imageGenerationProviderReady: {String(designPackage.imageGenerationProviderReady)}
+                </span>
+                {" — "}flag means prompts are structured for a future provider adapter, not that keys are configured.
+              </div>
+              <div style={{ padding: "14px" }}>
+                <PromptBlock title="Master design prompt" text={designPackage.masterDesignPrompt} />
+                {(designPackage.alternateDesignPrompts || []).map((t, i) => (
+                  <PromptBlock key={`alt-${i}`} title={`Alternate prompt ${i + 1}`} text={t} />
+                ))}
+                {(designPackage.mockupPrompts || []).map((t, i) => (
+                  <PromptBlock key={`mock-${i}`} title={`Mockup prompt ${i + 1}`} text={t} />
+                ))}
+                <TextBlock title="Aesthetic pack" body={designPackage.aestheticPack} />
+                <TextBlock title="Typography suggestions" body={designPackage.typographySuggestions} />
+                <TextBlock title="Color system" body={designPackage.colorSystem} />
+                <TextBlock title="Visual direction" body={designPackage.visualDirection} />
+                <div style={{ marginBottom: "14px" }}>
+                  <div style={labelStyle}>Social media concepts</div>
+                  {(designPackage.socialMediaConcepts || []).map((sm) => (
+                    <div key={sm.id} style={{
+                      marginBottom: "10px",
+                      padding: "10px",
+                      background: "var(--bg-secondary)",
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      fontSize: "12px",
+                      color: "var(--text-secondary)"
+                    }}>
+                      <strong>{sm.platform}</strong>
+                      <div style={{ marginTop: "6px" }}><em>{sm.hook}</em></div>
+                      <div style={{ marginTop: "6px", whiteSpace: "pre-wrap" }}>{sm.caption}</div>
+                      <div style={{ marginTop: "6px", fontSize: "11px", color: "var(--text-muted)" }}>
+                        {(sm.hashtags || []).join(" ")}
+                      </div>
+                      <CopyRow text={`${sm.hook}\n\n${sm.caption}\n\n${(sm.hashtags || []).join(" ")}`} />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginBottom: "14px" }}>
+                  <div style={labelStyle}>Ad creative ideas</div>
+                  <ul style={{ margin: "6px 0 0 18px", padding: 0, fontSize: "12px", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                    {(designPackage.adCreativeIdeas || []).map((line, i) => (
+                      <li key={i} style={{ marginBottom: "6px" }}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+                <TextBlock title="Print file guidelines" body={designPackage.printFileGuidelines} />
+                <TextBlock title="Export recommendations" body={designPackage.exportRecommendations} />
+                <CopyRow text={[
+                  designPackage.masterDesignPrompt,
+                  ...(designPackage.alternateDesignPrompts || []),
+                  ...(designPackage.mockupPrompts || [])
+                ].join("\n\n---\n\n")} label="Copy all prompts" />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 };
+
+const labelStyle = {
+  fontSize: "10px",
+  fontFamily: "var(--font-display)",
+  fontWeight: 600,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  color: "var(--text-muted)",
+  marginBottom: "6px"
+};
+
+function PromptBlock({ title, text }) {
+  return (
+    <div style={{ marginBottom: "14px" }}>
+      <div style={{ ...labelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+        <span>{title}</span>
+        <CopyTextButton text={text} />
+      </div>
+      <div style={{
+        fontSize: "11px",
+        fontFamily: "monospace",
+        color: "var(--text-secondary)",
+        whiteSpace: "pre-wrap",
+        lineHeight: 1.55,
+        padding: "10px",
+        background: "var(--bg-secondary)",
+        borderRadius: "var(--radius-sm)",
+        border: "1px solid var(--border)",
+        maxHeight: "220px",
+        overflow: "auto"
+      }}>
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function TextBlock({ title, body }) {
+  if (!body) return null;
+  return (
+    <div style={{ marginBottom: "14px" }}>
+      <div style={{ ...labelStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+        <span>{title}</span>
+        <CopyTextButton text={body} />
+      </div>
+      <div style={{
+        fontSize: "12px",
+        color: "var(--text-secondary)",
+        whiteSpace: "pre-wrap",
+        lineHeight: 1.55,
+        padding: "10px",
+        background: "var(--bg-secondary)",
+        borderRadius: "var(--radius-sm)",
+        border: "1px solid var(--border)"
+      }}>
+        {body}
+      </div>
+    </div>
+  );
+}
+
+function CopyTextButton({ text }) {
+  const [done, setDone] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text || "");
+      setDone(true);
+      setTimeout(() => setDone(false), 1800);
+    } catch {
+      window.prompt("Copy:", text);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      style={{
+        padding: "4px 10px",
+        fontSize: "10px",
+        fontWeight: 700,
+        borderRadius: "4px",
+        border: "1px solid var(--border)",
+        background: "var(--bg-primary)",
+        color: "var(--accent)",
+        flexShrink: 0
+      }}
+    >
+      {done ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+function CopyRow({ text, label = "Copy block" }) {
+  const [done, setDone] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text || "");
+      setDone(true);
+      setTimeout(() => setDone(false), 1800);
+    } catch {
+      window.prompt("Copy:", text);
+    }
+  };
+  return (
+    <div style={{ marginTop: "8px" }}>
+      <button
+        type="button"
+        onClick={onCopy}
+        style={{
+          padding: "4px 10px",
+          fontSize: "10px",
+          fontWeight: 700,
+          borderRadius: "4px",
+          border: "1px solid var(--border)",
+          background: "var(--bg-primary)",
+          color: "var(--accent)"
+        }}
+      >
+        {done ? "Copied" : label}
+      </button>
+    </div>
+  );
+}
 
 export default PodConceptStudio;

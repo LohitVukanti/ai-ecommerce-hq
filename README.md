@@ -24,6 +24,10 @@ From any **product detail** modal, open **Product Concept Studio** to generate *
 
 After you **select a concept**, use **Generate POD Prep** to save a **Printify-oriented prep packet** on the product (`podPrep`): recommended catalog shape (tee, crew, hoodie, poster, tote, sticker), colors, print placement/area, **estimated production cost, retail, profit, and margin %**, plus fulfillment, mockup, file, and risk notes. This is **prep only** — no Printify API keys or storefront sync yet. A future integration can replace the template block with live catalog IDs and pricing while keeping the same persisted fields.
 
+### Design package studio (new)
+
+Once **listing** and **POD prep** exist for the **selected concept**, **Generate Design Package** saves `designPackage` on the product: a **master design prompt**, alternates, **mockup prompts**, **social post concepts**, typography/color/visual direction, print/export guidance, and an **`imageGenerationProviderReady`** flag indicating the payload is shaped for a future image API adapter (DALL·E, SDXL, Ideogram, etc.) — **no image keys or generation calls** in this build. Replace `designPackageService.js` internals when you add real providers; keep the route and SQLite field.
+
 ---
 
 ## Project Structure
@@ -42,7 +46,8 @@ ai-ecommerce-hq/
 │   │   ├── etsyService.js     ← Etsy integration (mock or real)
 │   │   ├── digitalProductService.js
 │   │   ├── opportunityScorer.js ← Rule-based idea scoring (no paid AI)
-│   │   └── podConceptService.js ← POD concepts + listing + Printify prep (template; API-ready later)
+│   │   ├── podConceptService.js ← POD concepts + listing + Printify prep (template; API-ready later)
+│   │   └── designPackageService.js ← Design package / mockup / social prompts (template; image-API-ready)
 │   └── data/
 │       ├── db.js              ← SQLite (products + ideas)
 │       └── products.sqlite    ← Created automatically (gitignored)
@@ -168,6 +173,7 @@ Open http://localhost:3000 in your browser. You should see the dashboard!
 | POST   | `/api/products/:id/reject-concept` | Mark a concept rejected (`body: { conceptId }`) |
 | POST   | `/api/products/:id/generate-listing` | Build Etsy-style listing from concept (`body: { conceptId }` optional) |
 | POST   | `/api/products/:id/generate-pod-prep` | Printify-oriented POD prep from **selected** concept (template; no live API) |
+| POST   | `/api/products/:id/generate-design-package` | Design / mockup / social prompt package (requires listing + POD prep + selection) |
 
 ### Ideas (research intake)
 

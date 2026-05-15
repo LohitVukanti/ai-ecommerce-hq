@@ -30,6 +30,7 @@ const {
   buildPodListingFromConcept,
   buildPodPrepFromConcept
 } = require("../services/podConceptService");
+const { buildDesignPackage } = require("../services/designPackageService");
 
 // ============================================================
 // GET /api/products
@@ -199,7 +200,8 @@ router.post("/:id/generate-concepts", (req, res) => {
       generatedConcepts: concepts,
       selectedConceptId: null,
       listingData: null,
-      podPrep: null
+      podPrep: null,
+      designPackage: null
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -240,14 +242,17 @@ router.post("/:id/select-concept", (req, res) => {
     });
 
     let podPrep = product.podPrep;
+    let designPackage = product.designPackage;
     if (product.podPrep && product.podPrep.selectedConceptId !== conceptId) {
       podPrep = null;
+      designPackage = null;
     }
 
     const updatedProduct = updateProduct(req.params.id, {
       generatedConcepts: next,
       selectedConceptId: conceptId,
-      podPrep
+      podPrep,
+      designPackage
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -282,15 +287,18 @@ router.post("/:id/reject-concept", (req, res) => {
     );
     let selectedConceptId = product.selectedConceptId;
     let podPrep = product.podPrep;
+    let designPackage = product.designPackage;
     if (selectedConceptId === conceptId) {
       selectedConceptId = null;
       podPrep = null;
+      designPackage = null;
     }
 
     const updatedProduct = updateProduct(req.params.id, {
       generatedConcepts: next,
       selectedConceptId,
-      podPrep
+      podPrep,
+      designPackage
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -330,7 +338,7 @@ router.post("/:id/generate-listing", (req, res) => {
     }
 
     const listingData = buildPodListingFromConcept(product, concept);
-    const updatedProduct = updateProduct(req.params.id, { listingData });
+    const updatedProduct = updateProduct(req.params.id, { listingData, designPackage: null });
 
     res.json({ success: true, data: updatedProduct });
   } catch (error) {
@@ -379,12 +387,85 @@ router.post("/:id/generate-pod-prep", (req, res) => {
     }
 
     const podPrep = buildPodPrepFromConcept(product, concept);
-    const updatedProduct = updateProduct(req.params.id, { podPrep });
+    const updatedProduct = updateProduct(req.params.id, { podPrep, designPackage: null });
 
     res.json({ success: true, data: updatedProduct });
   } catch (error) {
     console.error("Error generating POD prep:", error);
     res.status(500).json({ success: false, message: "Failed to generate POD prep" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/generate-design-package
+// Template prompts + social + export spec — requires concept + listing + POD prep
+// ============================================================
+router.post("/:id/generate-design-package", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const selectedId = product.selectedConceptId;
+    if (!selectedId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Select a concept first. Then generate POD listing and POD prep before creating a design package."
+      });
+    }
+
+    const list = Array.isArray(product.generatedConcepts) ? product.generatedConcepts : [];
+    const concept = list.find((c) => c.id === selectedId);
+
+    if (!concept || concept.conceptStatus === "rejected") {
+      return res.status(400).json({
+        success: false,
+        message: "Selected concept is missing or rejected. Select a valid concept and try again."
+      });
+    }
+
+    const listingData = product.listingData;
+    if (!listingData || typeof listingData !== "object" || !listingData.etsyTitle) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Generate POD listing first (listing preview), then continue — the design package uses listing copy and tags."
+      });
+    }
+
+    const podPrep = product.podPrep;
+    if (!podPrep || typeof podPrep !== "object" || !podPrep.id) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Generate POD prep first — the design package aligns print areas, costs, and fulfillment notes with mockup prompts."
+      });
+    }
+
+    if (podPrep.selectedConceptId && podPrep.selectedConceptId !== selectedId) {
+      return res.status(400).json({
+        success: false,
+        message: "POD prep is for a different concept. Regenerate POD prep for your current selection."
+      });
+    }
+
+    if (listingData.fromConceptId && listingData.fromConceptId !== selectedId) {
+      return res.status(400).json({
+        success: false,
+        message: "Listing was built for a different concept. Regenerate listing for the selected concept."
+      });
+    }
+
+    const designPackage = buildDesignPackage(product, concept, listingData, podPrep);
+    const updatedProduct = updateProduct(req.params.id, { designPackage });
+
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error generating design package:", error);
+    res.status(500).json({ success: false, message: "Failed to generate design package" });
   }
 });
 
