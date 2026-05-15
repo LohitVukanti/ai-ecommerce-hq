@@ -135,3 +135,27 @@ export const scoreIdea = (id) => request("POST", `/ideas/${id}/score`);
 /** Returns { product, idea } from the backend */
 export const convertIdeaToProduct = (id) =>
   request("POST", `/ideas/${id}/convert-to-product`);
+
+// ---- Trend Scanner API (manual/assisted trend intake; converts to ideas) ----
+
+/** Fetch trend scans; optional filters: sourcePlatform, productType */
+export const fetchTrendScans = (filters = {}) => {
+  const q = new URLSearchParams();
+  if (filters.sourcePlatform) q.set("sourcePlatform", filters.sourcePlatform);
+  if (filters.productType) q.set("productType", filters.productType);
+  const qs = q.toString();
+  return request("GET", `/trends${qs ? `?${qs}` : ""}`);
+};
+
+export const fetchTrendScan = (id) => request("GET", `/trends/${id}`);
+
+export const createTrendScan = (payload) => request("POST", "/trends", payload);
+
+export const updateTrendScan = (id, payload) =>
+  request("PUT", `/trends/${id}`, payload);
+
+export const deleteTrendScan = (id) => request("DELETE", `/trends/${id}`);
+
+/** Returns { idea, trendScan } from the backend */
+export const convertTrendScanToIdea = (id) =>
+  request("POST", `/trends/${id}/convert-to-idea`);

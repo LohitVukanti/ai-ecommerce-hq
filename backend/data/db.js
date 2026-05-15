@@ -47,6 +47,27 @@ db.exec(`
   }
 })();
 
+// ---- Trend scans (manual/assisted research feed; converts into ideas) ----
+db.exec(`
+  CREATE TABLE IF NOT EXISTS trend_scans (
+    id TEXT PRIMARY KEY,
+    sourcePlatform TEXT NOT NULL DEFAULT '',
+    trendKeyword TEXT NOT NULL,
+    sourceUrl TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    observedEngagement TEXT NOT NULL DEFAULT '',
+    productAngle TEXT NOT NULL DEFAULT '',
+    targetCustomer TEXT NOT NULL DEFAULT '',
+    productType TEXT NOT NULL DEFAULT '',
+    niche TEXT NOT NULL DEFAULT '',
+    trendStrength TEXT NOT NULL DEFAULT '',
+    competitionSignal TEXT NOT NULL DEFAULT '',
+    convertedIdeaId TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  )
+`);
+
 // ---- Ideas / research intake (separate from sellable products) ----
 // Stores intake fields, rule-based opportunity score, and optional link to a converted product.
 db.exec(`
@@ -482,6 +503,186 @@ const convertIdeaToProduct = (id) => {
   return { product, idea: updatedIdea };
 };
 
+// ============================================================
+// Trend scans — row mapping & CRUD
+// ============================================================
+
+const rowToTrendScan = (row) => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    sourcePlatform: row.sourcePlatform || "",
+    trendKeyword: row.trendKeyword || "",
+    sourceUrl: row.sourceUrl || "",
+    notes: row.notes || "",
+    observedEngagement: row.observedEngagement || "",
+    productAngle: row.productAngle || "",
+    targetCustomer: row.targetCustomer || "",
+    productType: row.productType || "",
+    niche: row.niche || "",
+    trendStrength: row.trendStrength || "",
+    competitionSignal: row.competitionSignal || "",
+    convertedIdeaId: row.convertedIdeaId || null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+};
+
+const getAllTrendScans = () => {
+  const rows = db.prepare(`
+    SELECT * FROM trend_scans
+    ORDER BY datetime(createdAt) DESC
+  `).all();
+  return rows.map(rowToTrendScan);
+};
+
+const getTrendScanById = (id) => {
+  const row = db.prepare(`SELECT * FROM trend_scans WHERE id = ?`).get(id);
+  return rowToTrendScan(row);
+};
+
+const createTrendScan = (data) => {
+  const now = new Date().toISOString();
+  const scan = {
+    id: uuidv4(),
+    sourcePlatform: (data.sourcePlatform || "").trim(),
+    trendKeyword: (data.trendKeyword || "").trim(),
+    sourceUrl: (data.sourceUrl || "").trim(),
+    notes: (data.notes || "").trim(),
+    observedEngagement: (data.observedEngagement || "").trim(),
+    productAngle: (data.productAngle || "").trim(),
+    targetCustomer: (data.targetCustomer || "").trim(),
+    productType: (data.productType || "").trim(),
+    niche: (data.niche || "").trim(),
+    trendStrength: (data.trendStrength || "").trim(),
+    competitionSignal: (data.competitionSignal || "").trim(),
+    convertedIdeaId: null,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  if (!scan.trendKeyword) {
+    throw new Error("Trend keyword is required");
+  }
+
+  db.prepare(`
+    INSERT INTO trend_scans (
+      id, sourcePlatform, trendKeyword, sourceUrl, notes, observedEngagement,
+      productAngle, targetCustomer, productType, niche, trendStrength,
+      competitionSignal, convertedIdeaId, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    scan.id,
+    scan.sourcePlatform,
+    scan.trendKeyword,
+    scan.sourceUrl,
+    scan.notes,
+    scan.observedEngagement,
+    scan.productAngle,
+    scan.targetCustomer,
+    scan.productType,
+    scan.niche,
+    scan.trendStrength,
+    scan.competitionSignal,
+    scan.convertedIdeaId,
+    scan.createdAt,
+    scan.updatedAt
+  );
+
+  return getTrendScanById(scan.id);
+};
+
+const updateTrendScan = (id, updates) => {
+  const existing = getTrendScanById(id);
+  if (!existing) return null;
+
+  const merged = {
+    ...existing,
+    ...updates,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    updatedAt: new Date().toISOString()
+  };
+
+  db.prepare(`
+    UPDATE trend_scans SET
+      sourcePlatform = ?,
+      trendKeyword = ?,
+      sourceUrl = ?,
+      notes = ?,
+      observedEngagement = ?,
+      productAngle = ?,
+      targetCustomer = ?,
+      productType = ?,
+      niche = ?,
+      trendStrength = ?,
+      competitionSignal = ?,
+      convertedIdeaId = ?,
+      updatedAt = ?
+    WHERE id = ?
+  `).run(
+    merged.sourcePlatform,
+    merged.trendKeyword,
+    merged.sourceUrl,
+    merged.notes,
+    merged.observedEngagement,
+    merged.productAngle,
+    merged.targetCustomer,
+    merged.productType,
+    merged.niche,
+    merged.trendStrength,
+    merged.competitionSignal,
+    merged.convertedIdeaId,
+    merged.updatedAt,
+    id
+  );
+
+  return getTrendScanById(id);
+};
+
+const deleteTrendScan = (id) => {
+  const result = db.prepare(`DELETE FROM trend_scans WHERE id = ?`).run(id);
+  return result.changes > 0;
+};
+
+/**
+ * Build a research idea from a trend scan and persist via existing createIdea.
+ * Marks the trend scan with convertedIdeaId for traceability.
+ */
+const convertTrendScanToIdea = (id) => {
+  const scan = getTrendScanById(id);
+  if (!scan) return null;
+  if (scan.convertedIdeaId) {
+    const err = new Error("Trend scan was already converted to an idea");
+    err.code = "ALREADY_CONVERTED";
+    throw err;
+  }
+
+  const title = scan.trendKeyword || scan.productAngle || "Untitled trend";
+
+  const notesParts = [];
+  if (scan.productAngle) notesParts.push(`Product angle: ${scan.productAngle}`);
+  if (scan.observedEngagement) notesParts.push(`Observed engagement: ${scan.observedEngagement}`);
+  if (scan.notes) notesParts.push(`Trend notes:\n${scan.notes}`);
+
+  const idea = createIdea({
+    title,
+    sourcePlatform: scan.sourcePlatform,
+    sourceUrl: scan.sourceUrl,
+    niche: scan.niche,
+    targetCustomer: scan.targetCustomer,
+    productType: scan.productType,
+    competitionLevel: scan.competitionSignal,
+    demandEvidence: scan.observedEngagement,
+    trendEvidence: scan.trendStrength,
+    notes: notesParts.join("\n\n")
+  });
+
+  const updatedScan = updateTrendScan(id, { convertedIdeaId: idea.id });
+
+  return { idea, trendScan: updatedScan };
+};
+
 const getAnalyticsSummary = () => {
   const products = getAllProducts();
 
@@ -523,5 +724,11 @@ module.exports = {
   updateIdea,
   deleteIdea,
   scoreIdea,
-  convertIdeaToProduct
+  convertIdeaToProduct,
+  getAllTrendScans,
+  getTrendScanById,
+  createTrendScan,
+  updateTrendScan,
+  deleteTrendScan,
+  convertTrendScanToIdea
 };

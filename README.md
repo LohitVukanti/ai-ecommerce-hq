@@ -12,6 +12,10 @@ A full-stack dashboard for turning product ideas into AI-researched, Etsy-ready 
 4. **Approve** the listing when it looks good
 5. **Create an Etsy Draft** (simulated for now — easy to connect to real Etsy later)
 
+### Trend Scanner (new)
+
+Use **Trend Scanner** in the top bar to capture structured trend signals from any platform (TikTok, Etsy, Reddit, Pinterest, etc.). This is **manual / assisted intake only** — no scraping or paid APIs in this build. Each scan captures keyword, source, niche, product angle, observed engagement, trend strength, and competition signal. **Convert to idea** turns a scan into a row in the existing **Ideas & Research** system so the rest of the pipeline (scoring → product → POD → listing → POD prep → design package) stays unchanged. Replace `routes/trends.js` consumers later with real provider integrations without changing the SQLite shape.
+
 ### Ideas / research intake (new)
 
 Use **Ideas & Research** in the top bar to capture raw opportunities (source, niche, costs, evidence) and run a **rule-based opportunity score** (0–100) with a clear recommendation band. When you are ready, **convert** an idea into a normal **product** row so the existing AI, digital product CSV, and Etsy draft flows work unchanged.
@@ -40,7 +44,8 @@ ai-ecommerce-hq/
 │   ├── package.json
 │   ├── routes/
 │   │   ├── products.js        ← All /api/products endpoints
-│   │   └── ideas.js           ← Ideas intake + scoring + convert
+│   │   ├── ideas.js           ← Ideas intake + scoring + convert
+│   │   └── trends.js          ← Trend Scanner intake + convert-to-idea
 │   ├── services/
 │   │   ├── aiService.js       ← AI content generation (mock or OpenAI)
 │   │   ├── etsyService.js     ← Etsy integration (mock or real)
@@ -49,7 +54,7 @@ ai-ecommerce-hq/
 │   │   ├── podConceptService.js ← POD concepts + listing + Printify prep (template; API-ready later)
 │   │   └── designPackageService.js ← Design package / mockup / social prompts (template; image-API-ready)
 │   └── data/
-│       ├── db.js              ← SQLite (products + ideas)
+│       ├── db.js              ← SQLite (products + ideas + trend_scans)
 │       └── products.sqlite    ← Created automatically (gitignored)
 │
 └── frontend/                  ← React + Vite app
@@ -65,12 +70,15 @@ ai-ecommerce-hq/
         │   └── api.js          ← All API calls (VITE_API_BASE_URL in production)
         ├── pages/
         │   ├── Dashboard.jsx     ← Product pipeline dashboard
-        │   └── IdeasResearch.jsx ← Ideas intake + scoring UI
+        │   ├── IdeasResearch.jsx ← Ideas intake + scoring UI
+        │   └── TrendScanner.jsx  ← Manual/assisted trend intake UI
         └── components/
             ├── PrivateAccessGate.jsx ← Optional VITE_APP_PASSWORD gate
             ├── AddProductModal.jsx
             ├── AddIdeaModal.jsx
+            ├── AddTrendScanModal.jsx
             ├── IdeaCard.jsx
+            ├── TrendScanCard.jsx
             ├── ProductCard.jsx          ← Card shown in the dashboard grid
             ├── ProductDetailModal.jsx   ← Full detail view with all AI data
             ├── PodConceptStudio.jsx     ← POD concepts + listing preview
@@ -228,6 +236,17 @@ This stack is suitable for a **demo or private MVP**: SQLite and generated CSVs 
 | DELETE | `/api/ideas/:id` | Delete an idea |
 | POST   | `/api/ideas/:id/score` | Run rule-based opportunity scoring (persists scores) |
 | POST   | `/api/ideas/:id/convert-to-product` | Create a **product** from this idea |
+
+### Trend Scanner
+
+| Method | Path | What it does |
+|--------|------|--------------|
+| GET    | `/api/trends` | List trend scans (optional filters: `sourcePlatform`, `productType`) |
+| POST   | `/api/trends` | Create a trend scan (`trendKeyword` required) |
+| GET    | `/api/trends/:id` | Fetch one trend scan |
+| PUT    | `/api/trends/:id` | Update editable fields (converted scans are locked) |
+| DELETE | `/api/trends/:id` | Delete a trend scan |
+| POST   | `/api/trends/:id/convert-to-idea` | Create a research **idea** from this trend scan |
 
 ---
 

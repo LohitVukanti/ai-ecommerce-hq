@@ -1,16 +1,22 @@
 // ============================================================
-// pages/IdeasResearch.jsx — Ideas / research intake + opportunity scorer UI
+// pages/TrendScanner.jsx — Manual/assisted trend intake UI
 // ============================================================
-// Uses rule-based scoring on the server (no paid AI). Styling matches Dashboard tokens.
+// Captures structured trend signals before they become ideas.
+// Convert turns a scan into a row in the existing Ideas system,
+// which then flows into scoring → product → POD → design package.
 // ============================================================
 
-import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { fetchIdeas, scoreIdea, deleteIdea, convertIdeaToProduct } from "../services/api";
-import IdeaCard from "../components/IdeaCard";
-import AddIdeaModal from "../components/AddIdeaModal";
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  fetchTrendScans,
+  deleteTrendScan,
+  convertTrendScanToIdea
+} from "../services/api";
+import TrendScanCard from "../components/TrendScanCard";
+import AddTrendScanModal from "../components/AddTrendScanModal";
 
-const IdeasResearch = ({ onBack, onOpenTrends }) => {
-  const [ideas, setIdeas] = useState([]);
+const TrendScanner = ({ onBack, onOpenIdeas }) => {
+  const [scans, setScans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [info, setInfo] = useState(null);
@@ -18,63 +24,35 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
   const [busyId, setBusyId] = useState(null);
 
   const [filterPlatform, setFilterPlatform] = useState("");
-  const [filterDecision, setFilterDecision] = useState("");
   const [filterProductType, setFilterProductType] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchIdeas({
+      const data = await fetchTrendScans({
         sourcePlatform: filterPlatform || undefined,
-        decisionStatus: filterDecision || undefined,
         productType: filterProductType || undefined
       });
-      setIdeas(Array.isArray(data) ? data : []);
+      setScans(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e.message || "Could not load ideas. Is the backend running?");
+      setError(e.message || "Could not load trend scans. Is the backend running?");
     } finally {
       setLoading(false);
     }
-  }, [filterPlatform, filterDecision, filterProductType]);
+  }, [filterPlatform, filterProductType]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const decisionOptions = useMemo(() => {
-    const base = [
-      { value: "", label: "All decisions" },
-      { value: "pending", label: "Pending score" },
-      { value: "high_potential", label: "High potential" },
-      { value: "test", label: "Test" },
-      { value: "needs_refinement", label: "Needs refinement" },
-      { value: "reject", label: "Reject" },
-      { value: "converted_to_product", label: "Converted" }
-    ];
-    return base;
-  }, []);
-
-  const handleScore = async (id) => {
-    setBusyId(id);
-    setInfo(null);
-    try {
-      const updated = await scoreIdea(id);
-      setIdeas((prev) => prev.map((i) => (i.id === id ? updated : i)));
-    } catch (e) {
-      setError(e.message || "Scoring failed");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const handleDelete = async (id) => {
-    if (!window.confirm("Delete this idea permanently?")) return;
+    if (!window.confirm("Delete this trend scan permanently?")) return;
     setBusyId(id);
     setInfo(null);
     try {
-      await deleteIdea(id);
-      setIdeas((prev) => prev.filter((i) => i.id !== id));
+      await deleteTrendScan(id);
+      setScans((prev) => prev.filter((s) => s.id !== id));
     } catch (e) {
       setError(e.message || "Delete failed");
     } finally {
@@ -83,17 +61,17 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
   };
 
   const handleConvert = async (id) => {
-    if (!window.confirm("Create a new product in the pipeline from this idea?")) return;
+    if (!window.confirm("Create a new research idea from this trend scan?")) return;
     setBusyId(id);
     setInfo(null);
+    setError(null);
     try {
-      const result = await convertIdeaToProduct(id);
-      const pid = result?.product?.id;
-      setIdeas((prev) => prev.map((i) => (i.id === id ? result.idea : i)));
+      const result = await convertTrendScanToIdea(id);
+      setScans((prev) => prev.map((s) => (s.id === id ? result.trendScan : s)));
       setInfo(
-        pid
-          ? `Product created (id: ${pid}). Open the Product Dashboard to run AI, digital products, and Etsy draft as usual.`
-          : "Product created. Open the Product Dashboard to continue."
+        result?.idea?.id
+          ? `Idea created (id: ${result.idea.id}). Open Ideas & Research to score it and convert to a product.`
+          : "Idea created. Open Ideas & Research to continue."
       );
     } catch (e) {
       setError(e.message || "Convert failed");
@@ -147,11 +125,11 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
                 fontSize: "16px"
               }}
             >
-              🔭
+              📈
             </div>
             <div>
               <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "16px", lineHeight: 1 }}>
-                Ideas & Research
+                Trend Scanner
               </div>
               <div
                 style={{
@@ -161,17 +139,17 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
                   letterSpacing: "0.04em"
                 }}
               >
-                INTAKE + OPPORTUNITY SCORER
+                MANUAL / ASSISTED TREND INTAKE
               </div>
             </div>
           </div>
         </div>
 
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          {typeof onOpenTrends === "function" && (
+          {typeof onOpenIdeas === "function" && (
             <button
               type="button"
-              onClick={onOpenTrends}
+              onClick={onOpenIdeas}
               style={{
                 background: "var(--bg-tertiary)",
                 color: "var(--text-secondary)",
@@ -182,7 +160,7 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
                 fontWeight: 700
               }}
             >
-              Trend Scanner
+              Ideas & Research
             </button>
           )}
           <button
@@ -212,7 +190,7 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
               fontWeight: 800
             }}
           >
-            + New idea
+            + New trend scan
           </button>
         </div>
       </nav>
@@ -220,11 +198,11 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
       <main style={{ maxWidth: "1280px", margin: "0 auto", padding: "32px 24px" }}>
         <div style={{ marginBottom: "22px" }}>
           <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "28px", marginBottom: "6px" }}>
-            Research intake
+            Trend signals
           </h1>
           <p style={{ color: "var(--text-secondary)", fontSize: "14px", maxWidth: "820px" }}>
-            Capture signals from any platform, score opportunities with transparent rules (no paid AI), then convert winners into
-            products in your existing pipeline.
+            Capture structured trend observations from any platform. No scraping or paid APIs yet — convert promising
+            scans into research ideas to score and push down the existing pipeline.
           </p>
         </div>
 
@@ -287,30 +265,12 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
             >
               Source platform contains
             </span>
-            <input value={filterPlatform} onChange={(e) => setFilterPlatform(e.target.value)} placeholder="e.g. etsy" style={{ width: "100%" }} />
-          </label>
-          <label style={{ display: "block" }}>
-            <span
-              style={{
-                display: "block",
-                fontSize: "11px",
-                fontFamily: "var(--font-display)",
-                fontWeight: 700,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: "var(--text-muted)",
-                marginBottom: "6px"
-              }}
-            >
-              Decision status
-            </span>
-            <select value={filterDecision} onChange={(e) => setFilterDecision(e.target.value)} style={{ width: "100%" }}>
-              {decisionOptions.map((o) => (
-                <option key={o.value || "all"} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <input
+              value={filterPlatform}
+              onChange={(e) => setFilterPlatform(e.target.value)}
+              placeholder="e.g. tiktok"
+              style={{ width: "100%" }}
+            />
           </label>
           <label style={{ display: "block" }}>
             <span
@@ -327,18 +287,26 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
             >
               Product type contains
             </span>
-            <input value={filterProductType} onChange={(e) => setFilterProductType(e.target.value)} placeholder="e.g. printable" style={{ width: "100%" }} />
+            <input
+              value={filterProductType}
+              onChange={(e) => setFilterProductType(e.target.value)}
+              placeholder="e.g. tee"
+              style={{ width: "100%" }}
+            />
           </label>
         </div>
 
         {loading && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--text-muted)" }}>
-            <div className="spinner" style={{ width: "32px", height: "32px", margin: "0 auto 16px", borderTopColor: "var(--accent)" }} />
-            <div>Loading ideas…</div>
+            <div
+              className="spinner"
+              style={{ width: "32px", height: "32px", margin: "0 auto 16px", borderTopColor: "var(--accent)" }}
+            />
+            <div>Loading trend scans…</div>
           </div>
         )}
 
-        {!loading && ideas.length === 0 && (
+        {!loading && scans.length === 0 && (
           <div
             style={{
               textAlign: "center",
@@ -348,15 +316,24 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
               color: "var(--text-muted)"
             }}
           >
-            <div style={{ fontSize: "44px", marginBottom: "12px" }}>🧭</div>
-            <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "18px", color: "var(--text-secondary)" }}>
-              No ideas match these filters
+            <div style={{ fontSize: "44px", marginBottom: "12px" }}>📡</div>
+            <div
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 800,
+                fontSize: "18px",
+                color: "var(--text-secondary)"
+              }}
+            >
+              No trend scans match these filters
             </div>
-            <div style={{ fontSize: "14px", marginTop: "8px" }}>Try clearing filters or add a new research idea.</div>
+            <div style={{ fontSize: "14px", marginTop: "8px" }}>
+              Try clearing filters or capture a new trend signal.
+            </div>
           </div>
         )}
 
-        {!loading && ideas.length > 0 && (
+        {!loading && scans.length > 0 && (
           <div
             style={{
               display: "grid",
@@ -364,12 +341,11 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
               gap: "16px"
             }}
           >
-            {ideas.map((idea) => (
-              <div key={idea.id} className="fade-in">
-                <IdeaCard
-                  idea={idea}
+            {scans.map((scan) => (
+              <div key={scan.id} className="fade-in">
+                <TrendScanCard
+                  scan={scan}
                   busyId={busyId}
-                  onScore={handleScore}
                   onConvert={handleConvert}
                   onDelete={handleDelete}
                 />
@@ -380,13 +356,13 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
       </main>
 
       {showAdd && (
-        <AddIdeaModal
+        <AddTrendScanModal
           onClose={() => setShowAdd(false)}
-          onCreated={(idea) => setIdeas((prev) => [idea, ...prev])}
+          onCreated={(scan) => setScans((prev) => [scan, ...prev])}
         />
       )}
     </div>
   );
 };
 
-export default IdeasResearch;
+export default TrendScanner;

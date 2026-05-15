@@ -15,6 +15,7 @@ const path    = require("path");
 // Import our route files
 const productRoutes = require("./routes/products");
 const ideaRoutes = require("./routes/ideas");
+const trendRoutes = require("./routes/trends");
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -88,6 +89,8 @@ app.use(
 app.use("/api/products", productRoutes);
 // Ideas / research intake + opportunity scorer
 app.use("/api/ideas", ideaRoutes);
+// Trend Scanner — manual/assisted trend intake (converts to ideas)
+app.use("/api/trends", trendRoutes);
 
 // ---- Health Check ----
 // Useful to quickly verify the server is running
@@ -101,5 +104,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`   Health check:    http://localhost:${PORT}/api/health`);
   console.log(`   Products API:    http://localhost:${PORT}/api/products`);
   console.log(`   Ideas API:       http://localhost:${PORT}/api/ideas`);
+  console.log(`   Trends API:      http://localhost:${PORT}/api/trends`);
   console.log(`   Downloads:       http://localhost:${PORT}/downloads/\n`);
 });
