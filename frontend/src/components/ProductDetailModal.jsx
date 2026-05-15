@@ -9,8 +9,10 @@
 // ============================================================
 
 import React, { useState } from "react";
+import PodConceptStudio from "./PodConceptStudio";
 import StatusBadge from "./StatusBadge";
 import ScoreMeter from "./ScoreMeter";
+
 import {
   generateAI,
   approveProduct,
@@ -303,6 +305,14 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
 
         {/* ---- Content Area ---- */}
         <div style={{ padding: "24px 28px" }}>
+
+          <PodConceptStudio
+            product={product}
+            onProductChange={(updated) => {
+              setProduct(updated);
+              onProductUpdated(updated);
+            }}
+          />
 
           {/* No AI data yet */}
           {!ai && (

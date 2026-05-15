@@ -25,6 +25,10 @@ const { generateProductContent }    = require("../services/aiService");
 const { createEtsyDraftListing }    = require("../services/etsyService");
 // NEW: Digital product generator — no AI API required, fully template-based
 const { generateDigitalProduct }    = require("../services/digitalProductService");
+const {
+  generatePodConcepts,
+  buildPodListingFromConcept
+} = require("../services/podConceptService");
 
 // ============================================================
 // GET /api/products
@@ -174,6 +178,153 @@ router.post("/:id/generate-digital-product", async (req, res) => {
   } catch (error) {
     console.error("Error generating digital product:", error);
     res.status(500).json({ success: false, message: "Failed to generate digital product" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/generate-concepts
+// POD design concepts (template-based; persists generatedConcepts)
+// ============================================================
+router.post("/:id/generate-concepts", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const { concepts } = generatePodConcepts(product);
+    const updatedProduct = updateProduct(req.params.id, {
+      generatedConcepts: concepts,
+      selectedConceptId: null,
+      listingData: null
+    });
+
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error generating POD concepts:", error);
+    res.status(500).json({ success: false, message: "Failed to generate design concepts" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/select-concept
+// Body: { conceptId: string }
+// ============================================================
+router.post("/:id/select-concept", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const { conceptId } = req.body || {};
+    const list = Array.isArray(product.generatedConcepts) ? product.generatedConcepts : [];
+    const found = list.find((c) => c.id === conceptId);
+
+    if (!conceptId || !found) {
+      return res.status(400).json({ success: false, message: "Valid conceptId is required" });
+    }
+
+    if (found.conceptStatus === "rejected") {
+      return res.status(400).json({ success: false, message: "Cannot select a rejected concept" });
+    }
+
+    const next = list.map((c) => {
+      if (c.id === conceptId) return { ...c, conceptStatus: "selected" };
+      if (c.conceptStatus === "rejected") return c;
+      return { ...c, conceptStatus: "generated" };
+    });
+
+    const updatedProduct = updateProduct(req.params.id, {
+      generatedConcepts: next,
+      selectedConceptId: conceptId
+    });
+
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error selecting concept:", error);
+    res.status(500).json({ success: false, message: "Failed to select concept" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/reject-concept
+// Body: { conceptId: string } — persists rejection on the concept card
+// ============================================================
+router.post("/:id/reject-concept", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const { conceptId } = req.body || {};
+    const list = Array.isArray(product.generatedConcepts) ? product.generatedConcepts : [];
+    const found = list.find((c) => c.id === conceptId);
+
+    if (!conceptId || !found) {
+      return res.status(400).json({ success: false, message: "Valid conceptId is required" });
+    }
+
+    const next = list.map((c) =>
+      c.id === conceptId ? { ...c, conceptStatus: "rejected" } : c
+    );
+    let selectedConceptId = product.selectedConceptId;
+    if (selectedConceptId === conceptId) {
+      selectedConceptId = null;
+    }
+
+    const updatedProduct = updateProduct(req.params.id, {
+      generatedConcepts: next,
+      selectedConceptId
+    });
+
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error rejecting concept:", error);
+    res.status(500).json({ success: false, message: "Failed to reject concept" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/generate-listing
+// Optional body: { conceptId } — defaults to selectedConceptId
+// Persists listingData from the chosen concept (separate from aiData)
+// ============================================================
+router.post("/:id/generate-listing", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const list = Array.isArray(product.generatedConcepts) ? product.generatedConcepts : [];
+    const bodyConceptId = req.body && req.body.conceptId;
+    const targetId = bodyConceptId || product.selectedConceptId;
+    const concept = list.find((c) => c.id === targetId);
+
+    if (!concept) {
+      return res.status(400).json({
+        success: false,
+        message: "Select a concept first, or pass conceptId in the request body"
+      });
+    }
+
+    if (concept.conceptStatus === "rejected") {
+      return res.status(400).json({ success: false, message: "Cannot build listing from a rejected concept" });
+    }
+
+    const listingData = buildPodListingFromConcept(product, concept);
+    const updatedProduct = updateProduct(req.params.id, { listingData });
+
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error generating POD listing:", error);
+    res.status(500).json({ success: false, message: "Failed to generate listing" });
   }
 });
 

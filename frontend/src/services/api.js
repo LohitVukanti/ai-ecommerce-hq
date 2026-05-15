@@ -68,6 +68,25 @@ export const deleteProduct = (id) => request("DELETE", `/products/${id}`);
 export const generateDigitalProduct = (id) =>
   request("POST", `/products/${id}/generate-digital-product`);
 
+// ---- POD design concepts + listing (template-based; SQLite on product row) ----
+
+export const generateDesignConcepts = (id) =>
+  request("POST", `/products/${id}/generate-concepts`);
+
+export const selectProductConcept = (id, conceptId) =>
+  request("POST", `/products/${id}/select-concept`, { conceptId });
+
+export const rejectProductConcept = (id, conceptId) =>
+  request("POST", `/products/${id}/reject-concept`, { conceptId });
+
+/** Optional conceptId uses that concept; otherwise backend uses selectedConceptId */
+export const generatePodListing = (id, conceptId = null) =>
+  request(
+    "POST",
+    `/products/${id}/generate-listing`,
+    conceptId ? { conceptId } : undefined
+  );
+
 // ---- Ideas / research intake API (SQLite-backed on the server) ----
 
 /** Fetch ideas; optional filters match GET /api/ideas query params */

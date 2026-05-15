@@ -16,6 +16,10 @@ A full-stack dashboard for turning product ideas into AI-researched, Etsy-ready 
 
 Use **Ideas & Research** in the top bar to capture raw opportunities (source, niche, costs, evidence) and run a **rule-based opportunity score** (0–100) with a clear recommendation band. When you are ready, **convert** an idea into a normal **product** row so the existing AI, digital product CSV, and Etsy draft flows work unchanged.
 
+### POD concept studio (new)
+
+From any **product detail** modal, open **Product Concept Studio** to generate **3–5 template-based POD apparel concepts** (aesthetics, slogans, placements, mockup prompts, margin hints). **Select** a direction, optionally **reject** others, then **Generate listing** to store **Etsy-style title, tags, description, SEO keywords, and pricing notes** on the product (`listingData`) — separate from the classic **Generate AI Content** path so you can iterate on POD without breaking the original workflow. Swap `podConceptService.js` for OpenAI later using the same route shapes.
+
 ---
 
 ## Project Structure
@@ -33,7 +37,8 @@ ai-ecommerce-hq/
 │   │   ├── aiService.js       ← AI content generation (mock or OpenAI)
 │   │   ├── etsyService.js     ← Etsy integration (mock or real)
 │   │   ├── digitalProductService.js
-│   │   └── opportunityScorer.js ← Rule-based idea scoring (no paid AI)
+│   │   ├── opportunityScorer.js ← Rule-based idea scoring (no paid AI)
+│   │   └── podConceptService.js ← POD concepts + POD listing (template; OpenAI-ready)
 │   └── data/
 │       ├── db.js              ← SQLite (products + ideas)
 │       └── products.sqlite    ← Created automatically (gitignored)
@@ -57,6 +62,7 @@ ai-ecommerce-hq/
             ├── IdeaCard.jsx
             ├── ProductCard.jsx          ← Card shown in the dashboard grid
             ├── ProductDetailModal.jsx   ← Full detail view with all AI data
+            ├── PodConceptStudio.jsx     ← POD concepts + listing preview
             ├── StatusBadge.jsx          ← Colored status indicator
             └── ScoreMeter.jsx           ← Visual score bar (1–10)
 ```
@@ -153,6 +159,10 @@ Open http://localhost:3000 in your browser. You should see the dashboard!
 | POST   | `/api/products/:id/generate-digital-product` | Generate a downloadable CSV (digital product) |
 | DELETE | `/api/products/:id`                    | Delete a product                    |
 | GET    | `/api/products/analytics/summary`      | Analytics summary for reporting     |
+| POST   | `/api/products/:id/generate-concepts` | Generate 3–5 POD design concepts (saved on product) |
+| POST   | `/api/products/:id/select-concept` | Select a concept (`body: { conceptId }`) |
+| POST   | `/api/products/:id/reject-concept` | Mark a concept rejected (`body: { conceptId }`) |
+| POST   | `/api/products/:id/generate-listing` | Build Etsy-style listing from concept (`body: { conceptId }` optional) |
 
 ### Ideas (research intake)
 

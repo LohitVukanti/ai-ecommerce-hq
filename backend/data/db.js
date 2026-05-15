@@ -18,10 +18,26 @@ db.exec(`
     etsyDraft TEXT,
     digitalProduct TEXT,
     generatedFiles TEXT,
+    generatedConcepts TEXT,
+    selectedConceptId TEXT,
+    listingData TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL
   )
 `);
+
+(() => {
+  const cols = db.prepare(`PRAGMA table_info(products)`).all().map((c) => c.name);
+  if (!cols.includes("generatedConcepts")) {
+    db.exec(`ALTER TABLE products ADD COLUMN generatedConcepts TEXT`);
+  }
+  if (!cols.includes("selectedConceptId")) {
+    db.exec(`ALTER TABLE products ADD COLUMN selectedConceptId TEXT`);
+  }
+  if (!cols.includes("listingData")) {
+    db.exec(`ALTER TABLE products ADD COLUMN listingData TEXT`);
+  }
+})();
 
 // ---- Ideas / research intake (separate from sellable products) ----
 // Stores intake fields, rule-based opportunity score, and optional link to a converted product.
@@ -79,7 +95,10 @@ const rowToProduct = (row) => {
     aiData: parseJson(row.aiData, null),
     etsyDraft: parseJson(row.etsyDraft, null),
     digitalProduct: parseJson(row.digitalProduct, null),
-    generatedFiles: parseJson(row.generatedFiles, [])
+    generatedFiles: parseJson(row.generatedFiles, []),
+    generatedConcepts: parseJson(row.generatedConcepts, []),
+    selectedConceptId: row.selectedConceptId || null,
+    listingData: parseJson(row.listingData, null)
   };
 };
 
@@ -115,16 +134,20 @@ const createProduct = (data) => {
     aiData: null,
     etsyDraft: null,
     digitalProduct: null,
-    generatedFiles: []
+    generatedFiles: [],
+    generatedConcepts: [],
+    selectedConceptId: null,
+    listingData: null
   };
 
   db.prepare(`
     INSERT INTO products (
       id, title, description, category, status,
       aiData, etsyDraft, digitalProduct, generatedFiles,
+      generatedConcepts, selectedConceptId, listingData,
       createdAt, updatedAt
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     newProduct.id,
     newProduct.title,
@@ -135,6 +158,9 @@ const createProduct = (data) => {
     serializeJson(newProduct.etsyDraft),
     serializeJson(newProduct.digitalProduct),
     serializeJson(newProduct.generatedFiles),
+    serializeJson(newProduct.generatedConcepts),
+    newProduct.selectedConceptId,
+    serializeJson(newProduct.listingData),
     newProduct.createdAt,
     newProduct.updatedAt
   );
@@ -152,6 +178,14 @@ const updateProduct = (id, updates) => {
     updatedAt: new Date().toISOString()
   };
 
+  const concepts = Array.isArray(updatedProduct.generatedConcepts)
+    ? updatedProduct.generatedConcepts
+    : existing.generatedConcepts || [];
+  const listingData =
+    updatedProduct.listingData !== undefined
+      ? updatedProduct.listingData
+      : existing.listingData;
+
   db.prepare(`
     UPDATE products
     SET
@@ -163,6 +197,9 @@ const updateProduct = (id, updates) => {
       etsyDraft = ?,
       digitalProduct = ?,
       generatedFiles = ?,
+      generatedConcepts = ?,
+      selectedConceptId = ?,
+      listingData = ?,
       updatedAt = ?
     WHERE id = ?
   `).run(
@@ -174,6 +211,9 @@ const updateProduct = (id, updates) => {
     serializeJson(updatedProduct.etsyDraft),
     serializeJson(updatedProduct.digitalProduct),
     serializeJson(updatedProduct.generatedFiles),
+    serializeJson(concepts),
+    updatedProduct.selectedConceptId ?? null,
+    serializeJson(listingData),
     updatedProduct.updatedAt,
     id
   );
