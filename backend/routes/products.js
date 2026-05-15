@@ -27,7 +27,8 @@ const { createEtsyDraftListing }    = require("../services/etsyService");
 const { generateDigitalProduct }    = require("../services/digitalProductService");
 const {
   generatePodConcepts,
-  buildPodListingFromConcept
+  buildPodListingFromConcept,
+  buildPodPrepFromConcept
 } = require("../services/podConceptService");
 
 // ============================================================
@@ -197,7 +198,8 @@ router.post("/:id/generate-concepts", (req, res) => {
     const updatedProduct = updateProduct(req.params.id, {
       generatedConcepts: concepts,
       selectedConceptId: null,
-      listingData: null
+      listingData: null,
+      podPrep: null
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -237,9 +239,15 @@ router.post("/:id/select-concept", (req, res) => {
       return { ...c, conceptStatus: "generated" };
     });
 
+    let podPrep = product.podPrep;
+    if (product.podPrep && product.podPrep.selectedConceptId !== conceptId) {
+      podPrep = null;
+    }
+
     const updatedProduct = updateProduct(req.params.id, {
       generatedConcepts: next,
-      selectedConceptId: conceptId
+      selectedConceptId: conceptId,
+      podPrep
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -273,13 +281,16 @@ router.post("/:id/reject-concept", (req, res) => {
       c.id === conceptId ? { ...c, conceptStatus: "rejected" } : c
     );
     let selectedConceptId = product.selectedConceptId;
+    let podPrep = product.podPrep;
     if (selectedConceptId === conceptId) {
       selectedConceptId = null;
+      podPrep = null;
     }
 
     const updatedProduct = updateProduct(req.params.id, {
       generatedConcepts: next,
-      selectedConceptId
+      selectedConceptId,
+      podPrep
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -325,6 +336,55 @@ router.post("/:id/generate-listing", (req, res) => {
   } catch (error) {
     console.error("Error generating POD listing:", error);
     res.status(500).json({ success: false, message: "Failed to generate listing" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/generate-pod-prep
+// Printify-oriented prep (template) — requires a selected concept
+// ============================================================
+router.post("/:id/generate-pod-prep", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const selectedId = product.selectedConceptId;
+    if (!selectedId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Select a concept first (use “Select” on a concept card), then generate POD prep for that direction."
+      });
+    }
+
+    const list = Array.isArray(product.generatedConcepts) ? product.generatedConcepts : [];
+    const concept = list.find((c) => c.id === selectedId);
+
+    if (!concept) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Selected concept not found. Regenerate concepts or pick a valid concept, then try again."
+      });
+    }
+
+    if (concept.conceptStatus === "rejected") {
+      return res.status(400).json({
+        success: false,
+        message: "The selected concept is rejected. Select another concept before POD prep."
+      });
+    }
+
+    const podPrep = buildPodPrepFromConcept(product, concept);
+    const updatedProduct = updateProduct(req.params.id, { podPrep });
+
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error generating POD prep:", error);
+    res.status(500).json({ success: false, message: "Failed to generate POD prep" });
   }
 });
 

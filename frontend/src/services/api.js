@@ -87,6 +87,10 @@ export const generatePodListing = (id, conceptId = null) =>
     conceptId ? { conceptId } : undefined
   );
 
+/** Printify-oriented POD prep (template, prep mode — no live Printify API) */
+export const generatePodPrep = (id) =>
+  request("POST", `/products/${id}/generate-pod-prep`);
+
 // ---- Ideas / research intake API (SQLite-backed on the server) ----
 
 /** Fetch ideas; optional filters match GET /api/ideas query params */

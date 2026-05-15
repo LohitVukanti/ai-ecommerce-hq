@@ -21,6 +21,7 @@ db.exec(`
     generatedConcepts TEXT,
     selectedConceptId TEXT,
     listingData TEXT,
+    podPrep TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL
   )
@@ -36,6 +37,9 @@ db.exec(`
   }
   if (!cols.includes("listingData")) {
     db.exec(`ALTER TABLE products ADD COLUMN listingData TEXT`);
+  }
+  if (!cols.includes("podPrep")) {
+    db.exec(`ALTER TABLE products ADD COLUMN podPrep TEXT`);
   }
 })();
 
@@ -98,7 +102,8 @@ const rowToProduct = (row) => {
     generatedFiles: parseJson(row.generatedFiles, []),
     generatedConcepts: parseJson(row.generatedConcepts, []),
     selectedConceptId: row.selectedConceptId || null,
-    listingData: parseJson(row.listingData, null)
+    listingData: parseJson(row.listingData, null),
+    podPrep: parseJson(row.podPrep, null)
   };
 };
 
@@ -137,17 +142,18 @@ const createProduct = (data) => {
     generatedFiles: [],
     generatedConcepts: [],
     selectedConceptId: null,
-    listingData: null
+    listingData: null,
+    podPrep: null
   };
 
   db.prepare(`
     INSERT INTO products (
       id, title, description, category, status,
       aiData, etsyDraft, digitalProduct, generatedFiles,
-      generatedConcepts, selectedConceptId, listingData,
+      generatedConcepts, selectedConceptId, listingData, podPrep,
       createdAt, updatedAt
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     newProduct.id,
     newProduct.title,
@@ -161,6 +167,7 @@ const createProduct = (data) => {
     serializeJson(newProduct.generatedConcepts),
     newProduct.selectedConceptId,
     serializeJson(newProduct.listingData),
+    serializeJson(newProduct.podPrep),
     newProduct.createdAt,
     newProduct.updatedAt
   );
@@ -186,6 +193,9 @@ const updateProduct = (id, updates) => {
       ? updatedProduct.listingData
       : existing.listingData;
 
+  const podPrep =
+    updatedProduct.podPrep !== undefined ? updatedProduct.podPrep : existing.podPrep;
+
   db.prepare(`
     UPDATE products
     SET
@@ -200,6 +210,7 @@ const updateProduct = (id, updates) => {
       generatedConcepts = ?,
       selectedConceptId = ?,
       listingData = ?,
+      podPrep = ?,
       updatedAt = ?
     WHERE id = ?
   `).run(
@@ -214,6 +225,7 @@ const updateProduct = (id, updates) => {
     serializeJson(concepts),
     updatedProduct.selectedConceptId ?? null,
     serializeJson(listingData),
+    serializeJson(podPrep),
     updatedProduct.updatedAt,
     id
   );

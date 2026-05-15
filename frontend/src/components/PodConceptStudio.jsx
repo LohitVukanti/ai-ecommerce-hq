@@ -7,7 +7,8 @@ import {
   generateDesignConcepts,
   selectProductConcept,
   rejectProductConcept,
-  generatePodListing
+  generatePodListing,
+  generatePodPrep
 } from "../services/api";
 
 const SectionHeader = ({ title, icon }) => (
@@ -59,6 +60,7 @@ const PodConceptStudio = ({ product, onProductChange }) => {
 
   const concepts = Array.isArray(product.generatedConcepts) ? product.generatedConcepts : [];
   const listing = product.listingData;
+  const podPrep = product.podPrep;
 
   const run = async (key, fn) => {
     setLoading(key);
@@ -315,6 +317,115 @@ const PodConceptStudio = ({ product, onProductChange }) => {
             )}
           </div>
         )}
+
+        {/* ---- Printify / POD Prep (prep mode) ---- */}
+        <div style={{
+          borderTop: "1px solid var(--border)",
+          paddingTop: "16px",
+          marginTop: listing ? "12px" : "4px"
+        }}>
+          <div style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 700,
+            fontSize: "12px",
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "var(--text-secondary)",
+            marginBottom: "8px"
+          }}>
+            Printify / POD prep
+          </div>
+          <div style={{
+            fontSize: "11px",
+            color: "var(--text-muted)",
+            marginBottom: "12px",
+            padding: "10px 12px",
+            background: "var(--bg-primary)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            lineHeight: 1.5
+          }}>
+            <strong style={{ color: "var(--accent)" }}>Prep mode</strong>
+            {" — "}Estimates and checklists are template-generated. No Printify account or API keys
+            are used yet; this block is for planning margins, files, and fulfillment before you wire
+            a real integration.
+          </div>
+
+          <button
+            type="button"
+            title={!product.selectedConceptId ? "Select a concept on a card above first" : undefined}
+            onClick={() => run("prep", () => generatePodPrep(product.id))}
+            disabled={!!loading || !product.selectedConceptId}
+            style={{
+              padding: "10px 18px",
+              background: !product.selectedConceptId ? "var(--bg-primary)" : "var(--accent)",
+              color: !product.selectedConceptId ? "var(--text-muted)" : "#0d1117",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "13px",
+              fontWeight: 700,
+              marginBottom: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}
+          >
+            {loading === "prep" ? <span className="spinner" /> : <span>📦</span>}
+            {loading === "prep" ? "Generating…" : "Generate POD Prep"}
+          </button>
+
+          {podPrep && (
+            <div style={{
+              padding: "14px",
+              background: "var(--bg-primary)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "12px",
+              color: "var(--text-secondary)"
+            }}>
+              <div style={{ marginBottom: "10px", fontSize: "11px", color: "var(--text-muted)" }}>
+                Provider: <strong style={{ color: "var(--text-primary)" }}>{podPrep.provider}</strong>
+                {" · "}Prep id: <span style={{ fontFamily: "monospace" }}>{podPrep.id?.slice(0, 8)}…</span>
+              </div>
+              {[
+                ["Recommended product type", podPrep.recommendedProductType],
+                ["Apparel style", podPrep.apparelStyle],
+                ["Color", podPrep.apparelColor],
+                ["Print placement", podPrep.printPlacement],
+                ["Print area", podPrep.printArea],
+                ["Production cost (est.)", `$${podPrep.productionCostEstimate}`],
+                ["Selling price (est.)", `$${podPrep.recommendedSellingPrice}`],
+                ["Estimated profit", `$${podPrep.estimatedProfit}`],
+                ["Estimated margin", `${podPrep.estimatedMarginPercent}%`],
+                ["Fulfillment notes", podPrep.fulfillmentNotes],
+                ["Mockup instructions", podPrep.mockupInstructions],
+                ["Print file requirements", podPrep.printFileRequirements],
+                ["Risk notes", podPrep.riskNotes]
+              ].map(([label, val]) => (
+                <div key={label} style={{ marginBottom: "12px" }}>
+                  <div style={{
+                    fontSize: "10px",
+                    fontFamily: "var(--font-display)",
+                    fontWeight: 600,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--text-muted)",
+                    marginBottom: "4px"
+                  }}>
+                    {label}
+                  </div>
+                  <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{val}</div>
+                </div>
+              ))}
+              <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "8px" }}>
+                Created {new Date(podPrep.createdAt).toLocaleString()}
+                {podPrep.selectedConceptId && (
+                  <span> · linked concept <span style={{ fontFamily: "monospace" }}>{podPrep.selectedConceptId.slice(0, 8)}…</span></span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

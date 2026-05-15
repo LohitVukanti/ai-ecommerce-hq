@@ -361,9 +361,116 @@ function buildPodListingFromConcept(product, concept) {
   };
 }
 
+/** Map concept + product text to one of the supported prep catalog shapes. */
+function inferPodProductShape(concept, product) {
+  const combined = `${concept.apparelType || ""} ${product.title || ""} ${product.category || ""} ${product.description || ""}`.toLowerCase();
+  if (/\bposter\b|wall art|fine art print/.test(combined)) return "Poster";
+  if (/tote|canvas bag|carryall/.test(combined)) return "Tote bag";
+  if (/sticker|vinyl decal|die cut/.test(combined)) return "Sticker";
+  const t = (concept.apparelType || "").toLowerCase();
+  if (/hoodie/.test(t)) return "Hoodie";
+  if (/sweat|crew|quarter|coach|shell|rugby/.test(t)) return "Crewneck";
+  return "T-shirt";
+}
+
+const PRINT_AREA_BY_SHAPE = {
+  "T-shirt": 'Front: ~12" × 16" max print (keep 1" from collar/side seams). Back optional ~12" × 15".',
+  Crewneck: 'Front chest or center: ~11" × 11"; back large up to ~12" × 14" on midweight fleece.',
+  Hoodie: 'Front kangaroo-safe zone ~10" × 12"; back max ~13" × 16" — watch pocket seam alignment.',
+  Poster: '18" × 24" or 24" × 36" trim — full bleed 0.125" beyond cut; 300 DPI raster or vector.',
+  "Tote bag": 'Front panel ~10" × 12" centered between handles; avoid strap attachment zones.',
+  Sticker: 'Kiss-cut sheet or individual die-cut; min stroke 0.25 pt; CMYK + white ink layer if offered.'
+};
+
+const CATALOG_BLURB_BY_SHAPE = {
+  "T-shirt": "Tee — Bella+Canvas 3001–class garment (prep catalog label, not a live Printify SKU)",
+  Crewneck: "Crew / fleece — midweight sweatshirt blank class (prep)",
+  Hoodie: "Hoodie — midweight fleece blank class (prep)",
+  Poster: "Matte or semi-gloss poster stock — rolled ship (prep)",
+  "Tote bag": "Natural canvas tote — 10 oz class (prep)",
+  Sticker: "Vinyl die-cut sticker — durable laminate class (prep)"
+};
+
+/**
+ * Template-based Printify-oriented POD prep (no API keys).
+ * Later: replace body with Printify catalog + pricing API while keeping this return shape.
+ * @param {object} product
+ * @param {object} concept — must be the selected concept
+ * @returns {object|null}
+ */
+function buildPodPrepFromConcept(product, concept) {
+  if (!concept) return null;
+
+  const shape = inferPodProductShape(concept, product);
+  const seed = hashString((product.id || "") + (concept.id || "") + shape);
+
+  const sell = Math.max(8, Number(concept.estimatedSellingPrice) || 32);
+  let cost = Math.max(3, Number(concept.estimatedProductionCost) || 11);
+
+  const shapeCostBump = { "T-shirt": 0, Crewneck: 4, Hoodie: 7, Poster: 2, "Tote bag": 3, Sticker: 0.5 };
+  cost = Math.round((cost + (shapeCostBump[shape] || 0) + (seed % 3)) * 100) / 100;
+
+  const profit = Math.round((sell - cost) * 100) / 100;
+  const marginPct = sell > 0 ? Math.round(((sell - cost) / sell) * 1000) / 10 : 0;
+
+  const palette = concept.colorPalette || "Heather / core neutrals";
+  const apparelColor = sanitizeCopy(palette.split(",")[0].trim() || "Heather Navy");
+
+  const printPlacement = concept.placement || "Front chest — typographic lockup";
+  const printArea = PRINT_AREA_BY_SHAPE[shape] || PRINT_AREA_BY_SHAPE["T-shirt"];
+
+  const fulfillmentNotes = sanitizeCopy(
+    `Prep mode only — not connected to Printify.\n` +
+      `When live: create product in Printify, map this placement to their print area, ` +
+      `enable flat mockups + lifestyle set, and confirm shipping profile (standard vs expedited). ` +
+      `Shape: ${shape} — double-check variant colors match "${apparelColor}" swatch.`
+  );
+
+  const mockupInstructions = sanitizeCopy(
+    `${concept.mockupPrompt || ""}\n\n` +
+      `Printify mockup pass: flat front + 3/4 model; background neutral; ` +
+      `highlight ${concept.aesthetic} palette (${palette}).`
+  );
+
+  const printFileRequirements = sanitizeCopy(
+    `Deliver PNG at 300 DPI (min 3600px on long edge for ${shape}), transparent background for apparel, ` +
+      `sRGB color space. No embedded trademark art. ` +
+      `Safe margin: 0.5" from seams on textiles. ` +
+      `For ${shape}: follow Printify file assistant once connected.`
+  );
+
+  const riskNotes = sanitizeCopy(
+    `IP: use only original artwork; avoid varsity/collegiate marks and luxury house codes. ` +
+      `Color: garment dye lots vary — note in listing. ` +
+      `Returns: clarify made-to-order policy before enabling live sync. ` +
+      `Concept copyright risk flagged as: ${concept.copyrightRisk || "unknown"}.`
+  );
+
+  return {
+    id: uuidv4(),
+    selectedConceptId: concept.id,
+    provider: "Printify",
+    recommendedProductType: CATALOG_BLURB_BY_SHAPE[shape],
+    apparelStyle: sanitizeCopy(`${concept.aesthetic} · ${concept.designStyle || "original graphic"}`),
+    apparelColor,
+    printPlacement: sanitizeCopy(printPlacement),
+    printArea,
+    productionCostEstimate: cost,
+    recommendedSellingPrice: sell,
+    estimatedProfit: profit,
+    estimatedMarginPercent: marginPct,
+    fulfillmentNotes,
+    mockupInstructions,
+    printFileRequirements,
+    riskNotes,
+    createdAt: new Date().toISOString()
+  };
+}
+
 module.exports = {
   generatePodConcepts,
   buildPodListingFromConcept,
+  buildPodPrepFromConcept,
   sanitizeCopy,
   AESTHETICS
 };
