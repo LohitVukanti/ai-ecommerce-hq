@@ -25,7 +25,7 @@ const STATUSES = [
   { value: "rejected",           label: "Rejected",         icon: "❌" }
 ];
 
-const Dashboard = () => {
+const Dashboard = ({ onOpenIdeas }) => {
   // ---- State ----
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -115,6 +115,23 @@ const Dashboard = () => {
 
         {/* Nav Actions */}
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          {typeof onOpenIdeas === "function" && (
+            <button
+              type="button"
+              onClick={onOpenIdeas}
+              style={{
+                background: "var(--bg-tertiary)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border)",
+                padding: "8px 14px",
+                borderRadius: "var(--radius-sm)",
+                fontSize: "13px",
+                fontWeight: 700
+              }}
+            >
+              Ideas & Research
+            </button>
+          )}
           <button
             onClick={loadProducts}
             style={{

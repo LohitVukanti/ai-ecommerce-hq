@@ -12,6 +12,10 @@ A full-stack dashboard for turning product ideas into AI-researched, Etsy-ready 
 4. **Approve** the listing when it looks good
 5. **Create an Etsy Draft** (simulated for now — easy to connect to real Etsy later)
 
+### Ideas / research intake (new)
+
+Use **Ideas & Research** in the top bar to capture raw opportunities (source, niche, costs, evidence) and run a **rule-based opportunity score** (0–100) with a clear recommendation band. When you are ready, **convert** an idea into a normal **product** row so the existing AI, digital product CSV, and Etsy draft flows work unchanged.
+
 ---
 
 ## Project Structure
@@ -23,12 +27,16 @@ ai-ecommerce-hq/
 │   ├── .env.example           ← Copy this to .env for API keys
 │   ├── package.json
 │   ├── routes/
-│   │   └── products.js        ← All /api/products endpoints
+│   │   ├── products.js        ← All /api/products endpoints
+│   │   └── ideas.js           ← Ideas intake + scoring + convert
 │   ├── services/
 │   │   ├── aiService.js       ← AI content generation (mock or OpenAI)
-│   │   └── etsyService.js     ← Etsy integration (mock or real)
+│   │   ├── etsyService.js     ← Etsy integration (mock or real)
+│   │   ├── digitalProductService.js
+│   │   └── opportunityScorer.js ← Rule-based idea scoring (no paid AI)
 │   └── data/
-│       └── db.js              ← In-memory "database" (resets on restart)
+│       ├── db.js              ← SQLite (products + ideas)
+│       └── products.sqlite    ← Created automatically (gitignored)
 │
 └── frontend/                  ← React + Vite app
     ├── index.html
@@ -41,9 +49,12 @@ ai-ecommerce-hq/
         ├── services/
         │   └── api.js          ← All API calls to the backend
         ├── pages/
-        │   └── Dashboard.jsx   ← Main dashboard page
+        │   ├── Dashboard.jsx     ← Product pipeline dashboard
+        │   └── IdeasResearch.jsx ← Ideas intake + scoring UI
         └── components/
-            ├── AddProductModal.jsx      ← Form to add a new product
+            ├── AddProductModal.jsx
+            ├── AddIdeaModal.jsx
+            ├── IdeaCard.jsx
             ├── ProductCard.jsx          ← Card shown in the dashboard grid
             ├── ProductDetailModal.jsx   ← Full detail view with all AI data
             ├── StatusBadge.jsx          ← Colored status indicator
@@ -139,6 +150,21 @@ Open http://localhost:3000 in your browser. You should see the dashboard!
 | POST   | `/api/products/:id/approve`            | Approve a product                   |
 | POST   | `/api/products/:id/reject`             | Reject a product                    |
 | POST   | `/api/products/:id/create-etsy-draft`  | Create (simulated) Etsy draft       |
+| POST   | `/api/products/:id/generate-digital-product` | Generate a downloadable CSV (digital product) |
+| DELETE | `/api/products/:id`                    | Delete a product                    |
+| GET    | `/api/products/analytics/summary`      | Analytics summary for reporting     |
+
+### Ideas (research intake)
+
+| Method | Path | What it does |
+|--------|------|--------------|
+| GET    | `/api/ideas` | List ideas (optional filters: `sourcePlatform`, `decisionStatus`, `productType`) |
+| POST   | `/api/ideas` | Create a new idea row |
+| GET    | `/api/ideas/:id` | Fetch one idea |
+| PUT    | `/api/ideas/:id` | Update editable fields (converted ideas are locked) |
+| DELETE | `/api/ideas/:id` | Delete an idea |
+| POST   | `/api/ideas/:id/score` | Run rule-based opportunity scoring (persists scores) |
+| POST   | `/api/ideas/:id/convert-to-product` | Create a **product** from this idea |
 
 ---
 

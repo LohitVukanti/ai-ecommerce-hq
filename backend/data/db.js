@@ -23,6 +23,34 @@ db.exec(`
   )
 `);
 
+// ---- Ideas / research intake (separate from sellable products) ----
+// Stores intake fields, rule-based opportunity score, and optional link to a converted product.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ideas (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    sourcePlatform TEXT NOT NULL DEFAULT '',
+    sourceUrl TEXT NOT NULL DEFAULT '',
+    niche TEXT NOT NULL DEFAULT '',
+    targetCustomer TEXT NOT NULL DEFAULT '',
+    productType TEXT NOT NULL DEFAULT '',
+    estimatedSellingPrice REAL NOT NULL DEFAULT 0,
+    estimatedProductionCost REAL NOT NULL DEFAULT 0,
+    competitionLevel TEXT NOT NULL DEFAULT '',
+    demandEvidence TEXT NOT NULL DEFAULT '',
+    trendEvidence TEXT NOT NULL DEFAULT '',
+    fulfillmentDifficulty TEXT NOT NULL DEFAULT '',
+    copyrightRisk TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    decisionStatus TEXT NOT NULL DEFAULT 'pending',
+    opportunityScore INTEGER,
+    scoreBreakdown TEXT,
+    convertedProductId TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  )
+`);
+
 const parseJson = (value, fallback = null) => {
   if (!value) return fallback;
   try {
@@ -162,6 +190,232 @@ const deleteProduct = (id) => {
   return result.changes > 0;
 };
 
+// ============================================================
+// Ideas — row mapping & CRUD (same SQLite file as products)
+// ============================================================
+
+const rowToIdea = (row) => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    title: row.title,
+    sourcePlatform: row.sourcePlatform || "",
+    sourceUrl: row.sourceUrl || "",
+    niche: row.niche || "",
+    targetCustomer: row.targetCustomer || "",
+    productType: row.productType || "",
+    estimatedSellingPrice: Number(row.estimatedSellingPrice) || 0,
+    estimatedProductionCost: Number(row.estimatedProductionCost) || 0,
+    competitionLevel: row.competitionLevel || "",
+    demandEvidence: row.demandEvidence || "",
+    trendEvidence: row.trendEvidence || "",
+    fulfillmentDifficulty: row.fulfillmentDifficulty || "",
+    copyrightRisk: row.copyrightRisk || "",
+    notes: row.notes || "",
+    decisionStatus: row.decisionStatus || "pending",
+    opportunityScore: row.opportunityScore === null || row.opportunityScore === undefined ? null : Number(row.opportunityScore),
+    scoreBreakdown: parseJson(row.scoreBreakdown, null),
+    convertedProductId: row.convertedProductId || null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+};
+
+const getAllIdeas = () => {
+  const rows = db.prepare(`
+    SELECT * FROM ideas
+    ORDER BY datetime(createdAt) DESC
+  `).all();
+  return rows.map(rowToIdea);
+};
+
+const getIdeaById = (id) => {
+  const row = db.prepare(`SELECT * FROM ideas WHERE id = ?`).get(id);
+  return rowToIdea(row);
+};
+
+const createIdea = (data) => {
+  const now = new Date().toISOString();
+  const idea = {
+    id: uuidv4(),
+    title: (data.title || "").trim(),
+    sourcePlatform: (data.sourcePlatform || "").trim(),
+    sourceUrl: (data.sourceUrl || "").trim(),
+    niche: (data.niche || "").trim(),
+    targetCustomer: (data.targetCustomer || "").trim(),
+    productType: (data.productType || "").trim(),
+    estimatedSellingPrice: Number(data.estimatedSellingPrice) || 0,
+    estimatedProductionCost: Number(data.estimatedProductionCost) || 0,
+    competitionLevel: (data.competitionLevel || "").trim(),
+    demandEvidence: (data.demandEvidence || "").trim(),
+    trendEvidence: (data.trendEvidence || "").trim(),
+    fulfillmentDifficulty: (data.fulfillmentDifficulty || "").trim(),
+    copyrightRisk: (data.copyrightRisk || "").trim(),
+    notes: (data.notes || "").trim(),
+    decisionStatus: "pending",
+    opportunityScore: null,
+    scoreBreakdown: null,
+    convertedProductId: null,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  if (!idea.title) {
+    throw new Error("Idea title is required");
+  }
+
+  db.prepare(`
+    INSERT INTO ideas (
+      id, title, sourcePlatform, sourceUrl, niche, targetCustomer, productType,
+      estimatedSellingPrice, estimatedProductionCost, competitionLevel,
+      demandEvidence, trendEvidence, fulfillmentDifficulty, copyrightRisk,
+      notes, decisionStatus, opportunityScore, scoreBreakdown, convertedProductId,
+      createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    idea.id,
+    idea.title,
+    idea.sourcePlatform,
+    idea.sourceUrl,
+    idea.niche,
+    idea.targetCustomer,
+    idea.productType,
+    idea.estimatedSellingPrice,
+    idea.estimatedProductionCost,
+    idea.competitionLevel,
+    idea.demandEvidence,
+    idea.trendEvidence,
+    idea.fulfillmentDifficulty,
+    idea.copyrightRisk,
+    idea.notes,
+    idea.decisionStatus,
+    idea.opportunityScore,
+    serializeJson(idea.scoreBreakdown),
+    idea.convertedProductId,
+    idea.createdAt,
+    idea.updatedAt
+  );
+
+  return getIdeaById(idea.id);
+};
+
+const updateIdea = (id, updates) => {
+  const existing = getIdeaById(id);
+  if (!existing) return null;
+
+  const merged = {
+    ...existing,
+    ...updates,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    updatedAt: new Date().toISOString()
+  };
+
+  db.prepare(`
+    UPDATE ideas SET
+      title = ?,
+      sourcePlatform = ?,
+      sourceUrl = ?,
+      niche = ?,
+      targetCustomer = ?,
+      productType = ?,
+      estimatedSellingPrice = ?,
+      estimatedProductionCost = ?,
+      competitionLevel = ?,
+      demandEvidence = ?,
+      trendEvidence = ?,
+      fulfillmentDifficulty = ?,
+      copyrightRisk = ?,
+      notes = ?,
+      decisionStatus = ?,
+      opportunityScore = ?,
+      scoreBreakdown = ?,
+      convertedProductId = ?,
+      updatedAt = ?
+    WHERE id = ?
+  `).run(
+    merged.title,
+    merged.sourcePlatform,
+    merged.sourceUrl,
+    merged.niche,
+    merged.targetCustomer,
+    merged.productType,
+    merged.estimatedSellingPrice,
+    merged.estimatedProductionCost,
+    merged.competitionLevel,
+    merged.demandEvidence,
+    merged.trendEvidence,
+    merged.fulfillmentDifficulty,
+    merged.copyrightRisk,
+    merged.notes,
+    merged.decisionStatus,
+    merged.opportunityScore === undefined ? null : merged.opportunityScore,
+    serializeJson(merged.scoreBreakdown),
+    merged.convertedProductId,
+    merged.updatedAt,
+    id
+  );
+
+  return getIdeaById(id);
+};
+
+const deleteIdea = (id) => {
+  const result = db.prepare(`DELETE FROM ideas WHERE id = ?`).run(id);
+  return result.changes > 0;
+};
+
+const { computeOpportunityScores } = require("../services/opportunityScorer");
+
+/** Run rule-based scorer and persist scores + decision band on the idea row. */
+const scoreIdea = (id) => {
+  const idea = getIdeaById(id);
+  if (!idea) return null;
+  const scored = computeOpportunityScores(idea);
+  return updateIdea(id, {
+    opportunityScore: scored.overallOpportunityScore,
+    scoreBreakdown: scored.scoreBreakdown,
+    decisionStatus: scored.decisionStatus
+  });
+};
+
+/**
+ * Create a product from an idea (existing products pipeline unchanged).
+ * Marks the idea as converted and stores the new product id for traceability.
+ */
+const convertIdeaToProduct = (id) => {
+  const idea = getIdeaById(id);
+  if (!idea) return null;
+  if (idea.convertedProductId) {
+    const err = new Error("Idea was already converted to a product");
+    err.code = "ALREADY_CONVERTED";
+    throw err;
+  }
+
+  const lines = [];
+  if (idea.targetCustomer) lines.push(`Target customer: ${idea.targetCustomer}`);
+  if (idea.niche) lines.push(`Niche: ${idea.niche}`);
+  if (idea.sourcePlatform || idea.sourceUrl) {
+    lines.push(`Source: ${[idea.sourcePlatform, idea.sourceUrl].filter(Boolean).join(" — ")}`);
+  }
+  if (idea.notes) lines.push(`Research notes:\n${idea.notes}`);
+  if (idea.opportunityScore != null) {
+    lines.push(`Intake opportunity score: ${idea.opportunityScore}/100 (${idea.decisionStatus})`);
+  }
+
+  const product = createProduct({
+    title: idea.title,
+    description: lines.join("\n\n") || idea.title,
+    category: (idea.productType && idea.productType.trim()) || (idea.niche && idea.niche.trim()) || "General"
+  });
+
+  const updatedIdea = updateIdea(id, {
+    convertedProductId: product.id,
+    decisionStatus: "converted_to_product"
+  });
+
+  return { product, idea: updatedIdea };
+};
+
 const getAnalyticsSummary = () => {
   const products = getAllProducts();
 
@@ -196,5 +450,12 @@ module.exports = {
   createProduct,
   updateProduct,
   deleteProduct,
-  getAnalyticsSummary
+  getAnalyticsSummary,
+  getAllIdeas,
+  getIdeaById,
+  createIdea,
+  updateIdea,
+  deleteIdea,
+  scoreIdea,
+  convertIdeaToProduct
 };

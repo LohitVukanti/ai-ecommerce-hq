@@ -67,3 +67,29 @@ export const deleteProduct = (id) => request("DELETE", `/products/${id}`);
  */
 export const generateDigitalProduct = (id) =>
   request("POST", `/products/${id}/generate-digital-product`);
+
+// ---- Ideas / research intake API (SQLite-backed on the server) ----
+
+/** Fetch ideas; optional filters match GET /api/ideas query params */
+export const fetchIdeas = (filters = {}) => {
+  const q = new URLSearchParams();
+  if (filters.sourcePlatform) q.set("sourcePlatform", filters.sourcePlatform);
+  if (filters.decisionStatus) q.set("decisionStatus", filters.decisionStatus);
+  if (filters.productType) q.set("productType", filters.productType);
+  const qs = q.toString();
+  return request("GET", `/ideas${qs ? `?${qs}` : ""}`);
+};
+
+export const fetchIdea = (id) => request("GET", `/ideas/${id}`);
+
+export const createIdea = (payload) => request("POST", "/ideas", payload);
+
+export const updateIdea = (id, payload) => request("PUT", `/ideas/${id}`, payload);
+
+export const deleteIdea = (id) => request("DELETE", `/ideas/${id}`);
+
+export const scoreIdea = (id) => request("POST", `/ideas/${id}/score`);
+
+/** Returns { product, idea } from the backend */
+export const convertIdeaToProduct = (id) =>
+  request("POST", `/ideas/${id}/convert-to-product`);

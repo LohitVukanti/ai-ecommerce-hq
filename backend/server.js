@@ -14,6 +14,7 @@ const path    = require("path");
 
 // Import our route files
 const productRoutes = require("./routes/products");
+const ideaRoutes = require("./routes/ideas");
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -50,6 +51,8 @@ app.use(
 // ---- Routes ----
 // All product-related routes live under /api/products
 app.use("/api/products", productRoutes);
+// Ideas / research intake + opportunity scorer
+app.use("/api/ideas", ideaRoutes);
 
 // ---- Health Check ----
 // Useful to quickly verify the server is running
@@ -62,5 +65,6 @@ app.listen(PORT, () => {
   console.log(`\n🚀 Backend server running at http://localhost:${PORT}`);
   console.log(`   Health check:    http://localhost:${PORT}/api/health`);
   console.log(`   Products API:    http://localhost:${PORT}/api/products`);
+  console.log(`   Ideas API:       http://localhost:${PORT}/api/ideas`);
   console.log(`   Downloads:       http://localhost:${PORT}/downloads/\n`);
 });
