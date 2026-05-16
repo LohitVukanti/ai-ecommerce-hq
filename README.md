@@ -32,6 +32,12 @@ After you **select a concept**, use **Generate POD Prep** to save a **Printify-o
 
 Once **listing** and **POD prep** exist for the **selected concept**, **Generate Design Package** saves `designPackage` on the product: a **master design prompt**, alternates, **mockup prompts**, **social post concepts**, typography/color/visual direction, print/export guidance, and an **`imageGenerationProviderReady`** flag indicating the payload is shaped for a future image API adapter (DALL·E, SDXL, Ideogram, etc.) — **no image keys or generation calls** in this build. Replace `designPackageService.js` internals when you add real providers; keep the route and SQLite field.
 
+### Launch checklist & recommended next action (new)
+
+Every product detail modal now shows a **Product Launch Checklist** at the top: trend/idea source, idea scored, product created, design concepts generated, concept selected, listing generated, POD prep, design package, AI listing content (optional), digital product CSV (optional), approved, Etsy draft (simulated), and a placeholder **Published** step (future Printify/Etsy publish). Each step is marked **done / pending / blocked / optional / future** with a short hint and live progress bar.
+
+A single **Recommended Next Action** card sits above the checklist and tells you the one most useful next step (e.g. *"Select one concept before generating a listing."*, *"Generate POD Prep before Design Package."*, *"Ready for Etsy draft simulation."*). Each **product card** on the dashboard also shows a compact `Next · …` line so you can scan progress at a glance. All progress is **derived from existing fields** — no schema changes, no extra API calls.
+
 ---
 
 ## Project Structure
@@ -68,6 +74,8 @@ ai-ecommerce-hq/
         ├── index.css           ← Global styles
         ├── services/
         │   └── api.js          ← All API calls (VITE_API_BASE_URL in production)
+        ├── utils/
+        │   └── launchProgress.js ← Pure helpers: getLaunchSteps + getNextAction
         ├── pages/
         │   ├── Dashboard.jsx     ← Product pipeline dashboard
         │   ├── IdeasResearch.jsx ← Ideas intake + scoring UI
@@ -79,9 +87,10 @@ ai-ecommerce-hq/
             ├── AddTrendScanModal.jsx
             ├── IdeaCard.jsx
             ├── TrendScanCard.jsx
-            ├── ProductCard.jsx          ← Card shown in the dashboard grid
+            ├── ProductCard.jsx          ← Card shown in the dashboard grid (now shows Next · …)
             ├── ProductDetailModal.jsx   ← Full detail view with all AI data
-            ├── PodConceptStudio.jsx     ← POD concepts + listing preview
+            ├── LaunchChecklist.jsx      ← Workflow checklist + recommended next action
+            ├── PodConceptStudio.jsx     ← POD concepts + listing preview + design package
             ├── StatusBadge.jsx          ← Colored status indicator
             └── ScoreMeter.jsx           ← Visual score bar (1–10)
 ```

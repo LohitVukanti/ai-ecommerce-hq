@@ -12,6 +12,7 @@ import React, { useState } from "react";
 import PodConceptStudio from "./PodConceptStudio";
 import StatusBadge from "./StatusBadge";
 import ScoreMeter from "./ScoreMeter";
+import LaunchChecklist from "./LaunchChecklist";
 
 import {
   generateAI,
@@ -119,7 +120,7 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
   const [successMessage, setSuccessMessage] = useState(null);
 
   // Helper to run an API action safely
-  const runAction = async (actionName, apiFn) => {
+  const runAction = async (actionName, apiFn, successMsg) => {
     setLoadingAction(actionName);
     setError(null);
     setSuccessMessage(null);
@@ -127,6 +128,7 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
       const updatedProduct = await apiFn(product.id);
       setProduct(updatedProduct);                // Update local state
       onProductUpdated(updatedProduct);           // Tell parent dashboard to update too
+      if (successMsg) setSuccessMessage(successMsg);
     } catch (err) {
       setError(err.message || "Something went wrong");
     } finally {
@@ -134,12 +136,12 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
     }
   };
 
-  const handleGenerateAI      = () => runAction("ai",      generateAI);
-  const handleApprove         = () => runAction("approve", approveProduct);
-  const handleReject          = () => runAction("reject",  rejectProduct);
-  const handleEtsyDraft       = () => runAction("etsy",    createEtsyDraft);
+  const handleGenerateAI      = () => runAction("ai",      generateAI,              "AI content generated.");
+  const handleApprove         = () => runAction("approve", approveProduct,          "Listing approved — Etsy draft is now available.");
+  const handleReject          = () => runAction("reject",  rejectProduct,           "Product marked as rejected.");
+  const handleEtsyDraft       = () => runAction("etsy",    createEtsyDraft,         "Etsy draft (simulated) created.");
   // NEW: triggers template-based CSV generation — no AI API used
-  const handleGenerateDigital = () => runAction("digital", generateDigitalProduct);
+  const handleGenerateDigital = () => runAction("digital", generateDigitalProduct,  "Digital product CSV generated.");
 
   const handleDelete = async () => {
     const confirmed = window.confirm(`Delete "${product.title}"? This cannot be undone.`);
@@ -303,9 +305,44 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
             ⚠️ {error}
           </div>
         )}
+        {successMessage && (
+          <div
+            style={{
+              margin: "16px 28px 0",
+              padding: "10px 14px",
+              background: "var(--success-dim)",
+              border: "1px solid var(--success)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--success)",
+              fontSize: "13px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px"
+            }}
+          >
+            <span style={{ flex: 1 }}>✅ {successMessage}</span>
+            <button
+              type="button"
+              onClick={() => setSuccessMessage(null)}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--success)",
+                color: "var(--success)",
+                padding: "2px 8px",
+                borderRadius: "var(--radius-sm)",
+                fontSize: "11px",
+                fontWeight: 700
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* ---- Content Area ---- */}
         <div style={{ padding: "24px 28px" }}>
+
+          <LaunchChecklist product={product} />
 
           <PodConceptStudio
             product={product}

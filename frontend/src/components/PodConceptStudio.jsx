@@ -72,6 +72,20 @@ const PodConceptStudio = ({ product, onProductChange }) => {
     podPrep.id
   );
 
+  // Inline reason explaining why Design Package is disabled (instead of a hidden tooltip)
+  const designPackageReason = !product.selectedConceptId
+    ? "Select a concept first."
+    : !(listing && listing.etsyTitle)
+      ? "Generate the listing for the selected concept first."
+      : !(podPrep && podPrep.id)
+        ? "Generate POD Prep first — it provides cost / margin inputs."
+        : null;
+
+  // Did the saved listing come from a concept that is no longer selected?
+  const listingMismatch =
+    listing && listing.fromConceptId && product.selectedConceptId &&
+    listing.fromConceptId !== product.selectedConceptId;
+
   const run = async (key, fn) => {
     setLoading(key);
     setErr(null);
@@ -96,6 +110,39 @@ const PodConceptStudio = ({ product, onProductChange }) => {
       <SectionHeader title="Product Concept Studio" icon="🧵" />
 
       <div style={{ padding: "16px" }}>
+        {/* How-to-use guidance for the whole studio */}
+        <div
+          style={{
+            padding: "10px 12px",
+            background: "var(--bg-primary)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            fontSize: "11px",
+            color: "var(--text-secondary)",
+            lineHeight: 1.55,
+            marginBottom: "14px"
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 700,
+              fontSize: "10px",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "var(--accent)",
+              marginBottom: "4px"
+            }}
+          >
+            How to use this
+          </div>
+          <span style={{ color: "var(--text-muted)" }}>
+            1. Generate concepts &nbsp;→&nbsp; 2. Select one &nbsp;→&nbsp; 3. Generate listing
+            &nbsp;→&nbsp; 4. Generate POD Prep &nbsp;→&nbsp; 5. Generate Design Package.
+            All output is template-based; no paid API calls. Persisted to SQLite.
+          </span>
+        </div>
+
         {err && (
           <div style={{
             marginBottom: "12px", padding: "10px 12px",
@@ -146,6 +193,38 @@ const PodConceptStudio = ({ product, onProductChange }) => {
           }}>
             No POD concepts yet. Use the button above to generate 3–5 apparel directions
             (template-based, no paid API).
+          </div>
+        )}
+
+        {concepts.length > 0 && !product.selectedConceptId && (
+          <div
+            style={{
+              padding: "8px 12px",
+              background: "var(--accent-dim)",
+              border: "1px dashed var(--accent)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--accent)",
+              fontSize: "11px",
+              marginBottom: "12px"
+            }}
+          >
+            👇 Pick one concept (click <strong>Select</strong>) to unlock listing, POD prep, and design package.
+          </div>
+        )}
+
+        {listingMismatch && (
+          <div
+            style={{
+              padding: "8px 12px",
+              background: "var(--bg-primary)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--text-secondary)",
+              fontSize: "11px",
+              marginBottom: "12px"
+            }}
+          >
+            ⚠ The saved listing was built from a different concept. Re-run <strong>Generate listing</strong> on the currently selected concept to keep them aligned.
           </div>
         )}
 
@@ -393,9 +472,27 @@ const PodConceptStudio = ({ product, onProductChange }) => {
               fontSize: "12px",
               color: "var(--text-secondary)"
             }}>
-              <div style={{ marginBottom: "10px", fontSize: "11px", color: "var(--text-muted)" }}>
-                Provider: <strong style={{ color: "var(--text-primary)" }}>{podPrep.provider}</strong>
-                {" · "}Prep id: <span style={{ fontFamily: "monospace" }}>{podPrep.id?.slice(0, 8)}…</span>
+              <div style={{ marginBottom: "10px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--success)",
+                    background: "var(--success-dim)",
+                    border: "1px solid var(--success)",
+                    padding: "2px 8px",
+                    borderRadius: "999px",
+                    fontFamily: "var(--font-display)"
+                  }}
+                >
+                  ✓ Saved to product
+                </span>
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                  Provider: <strong style={{ color: "var(--text-primary)" }}>{podPrep.provider}</strong>
+                  {" · "}Prep id: <span style={{ fontFamily: "monospace" }}>{podPrep.id?.slice(0, 8)}…</span>
+                </span>
               </div>
               {[
                 ["Recommended product type", podPrep.recommendedProductType],
@@ -464,18 +561,41 @@ const PodConceptStudio = ({ product, onProductChange }) => {
                 Design package studio
               </div>
               <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
-                Preparation layer — structured prompts for art, mockups, and social. No image APIs yet; export JSON-shaped prompts for future DALL·E / SDXL / Ideogram workflows.
+                Preparation layer — structured prompts for art, mockups, and social.
               </div>
             </div>
           </div>
 
+          <div
+            style={{
+              padding: "10px 12px",
+              background: "rgba(139, 92, 246, 0.08)",
+              border: "1px solid rgba(139, 92, 246, 0.35)",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "11px",
+              color: "var(--text-secondary)",
+              lineHeight: 1.55,
+              marginBottom: "12px"
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 700,
+                fontSize: "10px",
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: "var(--purple)",
+                marginBottom: "4px"
+              }}
+            >
+              How to use this
+            </div>
+            Combines your selected concept, listing copy, and POD prep into a single creative brief: 1 master prompt, 3 alternates, 3 mockup prompts, social hooks, ad ideas, plus print-file + export guidance. Nothing is sent to an image API yet — copy a prompt block into DALL·E / SDXL / Ideogram or save for future automation.
+          </div>
+
           <button
             type="button"
-            title={
-              !canDesignPackage
-                ? "Requires selected concept + POD listing + POD prep"
-                : undefined
-            }
             onClick={() => run("designPkg", () => generateDesignPackage(product.id))}
             disabled={!!loading || !canDesignPackage}
             style={{
@@ -486,7 +606,7 @@ const PodConceptStudio = ({ product, onProductChange }) => {
               borderRadius: "var(--radius-sm)",
               fontSize: "13px",
               fontWeight: 800,
-              marginBottom: "14px",
+              marginBottom: "8px",
               display: "flex",
               alignItems: "center",
               gap: "8px",
@@ -496,6 +616,19 @@ const PodConceptStudio = ({ product, onProductChange }) => {
             {loading === "designPkg" ? <span className="spinner" /> : <span>✨</span>}
             {loading === "designPkg" ? "Generating…" : "Generate Design Package"}
           </button>
+
+          {designPackageReason && (
+            <div
+              style={{
+                fontSize: "11px",
+                color: "var(--text-muted)",
+                marginBottom: "14px",
+                lineHeight: 1.4
+              }}
+            >
+              🔒 {designPackageReason}
+            </div>
+          )}
 
           {designPackage && (
             <div style={{

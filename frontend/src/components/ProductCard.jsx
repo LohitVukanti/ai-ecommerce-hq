@@ -7,6 +7,20 @@
 
 import React from "react";
 import StatusBadge from "./StatusBadge";
+import { getNextActionShortLabel, getNextAction } from "../utils/launchProgress";
+
+const NEXT_TONE = {
+  concepts: "var(--purple)",
+  select: "var(--accent)",
+  listing: "var(--accent)",
+  podPrep: "var(--accent)",
+  designPackage: "var(--purple)",
+  aiContent: "var(--purple)",
+  approve: "var(--success)",
+  etsy: "var(--accent)",
+  rejected: "var(--danger)",
+  published: "var(--text-muted)"
+};
 
 const ProductCard = ({ product, onClick }) => {
   // Format date for display (e.g. "Dec 25, 2024")
@@ -16,6 +30,11 @@ const ProductCard = ({ product, onClick }) => {
 
   // Show AI scores if available (from the aiData field)
   const hasAiData = !!product.aiData;
+
+  // Recommended next action (read-only from existing fields)
+  const nextLabel = getNextActionShortLabel(product);
+  const nextKey = getNextAction(product).key;
+  const nextColor = NEXT_TONE[nextKey] || "var(--accent)";
 
   return (
     <div
@@ -127,6 +146,26 @@ const ProductCard = ({ product, onClick }) => {
           <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>No AI data yet</span>
         )}
         <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>{formattedDate}</span>
+      </div>
+
+      {/* Recommended next action — derived purely from existing fields */}
+      <div
+        style={{
+          marginTop: "12px",
+          paddingTop: "10px",
+          borderTop: "1px dashed var(--border)",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          fontSize: "11px",
+          color: "var(--text-muted)",
+          fontFamily: "var(--font-display)",
+          fontWeight: 600,
+          letterSpacing: "0.03em"
+        }}
+      >
+        <span style={{ color: "var(--text-muted)", textTransform: "uppercase" }}>Next ·</span>
+        <span style={{ color: nextColor, fontWeight: 700 }}>{nextLabel}</span>
       </div>
     </div>
   );
