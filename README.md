@@ -64,7 +64,57 @@ Once a product has a **selected concept + POD prep** (listing / design package /
 The UI shows the brief + negative prompt as **copy-ready blocks** (with copy buttons), plus a third "Copy combined prompt + negatives" button and a 4-slot empty placeholder grid for future generated / uploaded artwork.
 
 > **Preparation mode only — no image APIs are called yet.**
-> Backend route: `POST /api/products/:id/prepare-artwork`. Requires a selected concept + POD prep; listing / design package / Printify preview are optional enrichers. Persisted in SQLite as `products.artworkStatus` + `products.artworkAssets` (new columns; auto-migrated by `db.js`). Whenever upstream data changes (concept selection, listing, POD prep, design package, Printify preview), artwork prep is invalidated automatically.
+> Backend route: `POST /api/products/:id/prepare-artwork`. Requires a selected concept + POD prep; listing / design package / Printify preview are optional enrichers. Persisted in SQLite as `products.artworkStatus` + `products.artworkAssets` (new columns; auto-migrated by `db.js`). Whenever upstream data changes (concept selection, listing, POD prep, design package, Printify preview), the **prep brief** is cleared automatically — but **uploaded artwork files are preserved** (see below).
+
+### Artwork asset management (local storage) (new)
+
+The `artworkAssets` blob can now hold a list of real **uploaded / generated / mockup** files alongside the optional prep brief. This is the surface that a future image-generation API or Printify upload integration plugs into — no schema rewrites required when those land.
+
+Shape (additive to the prep fields):
+```jsonc
+{
+  // ...optional prep fields (artworkPrompt, negativePrompt, ...)
+  "items": [
+    {
+      "id": "uuid",
+      "type": "uploaded" | "manual" | "generated" | "mockup",
+      "fileName": "<productId>_<assetId>_<sanitized-original>.png",
+      "originalFileName": "logo.png",
+      "fileUrl": "/artwork/<fileName>",
+      "previewUrl": "/artwork/<fileName>",
+      "width": 4500, "height": 5400,
+      "transparentBackground": true,
+      "status": "draft" | "approved" | "rejected",
+      "isPrimary": true,
+      "sourceConceptId": "uuid|null",
+      "mimeType": "image/png", "sizeBytes": 1234567,
+      "createdAt": "ISO", "updatedAt": "ISO"
+    }
+  ]
+}
+```
+
+**Top-level `products.artworkStatus` is now derived** from the union of prep + items: `not_prepared → prepped → uploaded → approved`. The first uploaded item is auto-promoted to **primary**; uploading another with `isPrimary=true` demotes it; removing the primary auto-promotes the first remaining item.
+
+**Routes** (all `:id` is the product id):
+| Verb | Path | Notes |
+|---|---|---|
+| `POST` | `/api/products/:id/upload-artwork` | `multipart/form-data` — fields: `file` (PNG / JPEG / WEBP / GIF / SVG, ≤ 20 MB), optional `type`, optional `isPrimary=true` |
+| `POST` | `/api/products/:id/artwork/:assetId/approve` | flips item `status` to `approved` |
+| `POST` | `/api/products/:id/artwork/:assetId/reject` | flips item `status` to `rejected` |
+| `POST` | `/api/products/:id/artwork/:assetId/set-primary` | promotes one item to primary, demotes the rest |
+| `DELETE` | `/api/products/:id/artwork/:assetId` | removes the DB record AND the file on disk |
+
+**Local storage.** Uploaded files are written to `backend/generated-artwork/` and served inline at `GET /artwork/<filename>` (parallel to how CSVs are served at `/downloads/`). Filenames are namespaced as `<productId>_<assetId>_<sanitized-original>` so they're collision-proof and easy to clean up. The folder itself is committed (with `.gitkeep`) so the path exists after `git clone`; the upload files themselves are gitignored.
+
+**Width / height** are read with the `image-size` library (no native deps) for raster formats. **Transparent background** is set by file format: PNG / WEBP / GIF / SVG → `true`; JPEG → `false`. No actual pixel inspection is done — JPEG simply can't carry alpha.
+
+**Upstream invalidation behavior.** When you re-generate concepts / re-select a concept / re-generate listing / POD prep / design package / Printify preview, the **prep brief is cleared** so the prompts stay consistent with upstream inputs. **Uploaded asset records and their files on disk are NOT destroyed** — they're treated as user-owned work product. Re-running `prepare-artwork` merges the new brief on top of the existing items.
+
+**Cascade cleanup.** `DELETE /api/products/:id` walks `artworkAssets.items` and removes each underlying file before deleting the product row, so deleting a product no longer leaves orphan files on disk.
+
+> **Preparation mode only — no image-generation API and no Printify upload yet.**
+> The frontend "Upload artwork" button in the Concept Studio → Artwork section accepts any of the supported formats and renders the resulting items as preview cards with **Approve / Reject / Primary / Delete** controls. When a future image-generation provider (DALL·E / SDXL / Ideogram) is wired in, it can write its result through the **same** `addItem` helper with `type: "generated"` — the UI, route surface, and persisted shape stay identical.
 
 ### Launch checklist & recommended next action (new)
 
@@ -124,7 +174,9 @@ ai-ecommerce-hq/
 │   │   ├── podConceptService.js ← POD concepts + listing (template + optional OpenAI augmentation)
 │   │   ├── designPackageService.js ← Design package (template + optional OpenAI augmentation)
 │   │   ├── printifyPreviewService.js ← Printify draft preview (pure template; preview mode)
-│   │   └── artworkPrepService.js  ← Artwork generation prep (pure template; preparation mode, no image APIs)
+│   │   ├── artworkPrepService.js  ← Artwork generation prep (pure template; preparation mode, no image APIs)
+│   │   └── artworkAssetService.js ← Artwork asset list helpers (add / approve / reject / primary / remove / derive status)
+│   ├── generated-artwork/     ← Uploaded artwork assets (gitignored; folder kept via .gitkeep)
 │   └── data/
 │       ├── db.js              ← SQLite (products + ideas + trend_scans)
 │       └── products.sqlite    ← Created automatically (gitignored)

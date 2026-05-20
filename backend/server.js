@@ -84,6 +84,25 @@ app.use(
   })
 );
 
+// ---- Static File Serving — Uploaded / Generated Artwork ----
+// Files saved by the upload-artwork route go to
+// backend/generated-artwork/ and are served inline (not as
+// downloads) at GET /artwork/* so the frontend can render
+// <img> previews directly.
+const generatedArtworkDir = path.join(__dirname, "generated-artwork");
+app.use(
+  "/artwork",
+  express.static(generatedArtworkDir, {
+    setHeaders: (res) => {
+      // Allow cross-origin <img> embedding when the frontend is on a
+      // different origin (e.g. Vercel → Render). Static files are
+      // public read-only previews of user-owned uploads.
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      res.setHeader("Cache-Control", "public, max-age=300");
+    }
+  })
+);
+
 // ---- Routes ----
 // All product-related routes live under /api/products
 app.use("/api/products", productRoutes);
@@ -105,5 +124,6 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`   Products API:    http://localhost:${PORT}/api/products`);
   console.log(`   Ideas API:       http://localhost:${PORT}/api/ideas`);
   console.log(`   Trends API:      http://localhost:${PORT}/api/trends`);
-  console.log(`   Downloads:       http://localhost:${PORT}/downloads/\n`);
+  console.log(`   Downloads:       http://localhost:${PORT}/downloads/`);
+  console.log(`   Artwork:         http://localhost:${PORT}/artwork/\n`);
 });

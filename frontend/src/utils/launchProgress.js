@@ -34,6 +34,9 @@ export function getLaunchSteps(product = {}) {
   const printifyPreview = product.printifyPreview;
   const artworkAssets = product.artworkAssets;
   const artworkStatus = product.artworkStatus || "not_prepared";
+  const artworkItems = Array.isArray(artworkAssets?.items) ? artworkAssets.items : [];
+  const approvedArtworkItem = artworkItems.find((a) => a && a.status === "approved") || null;
+  const primaryArtworkItem = artworkItems.find((a) => a && a.isPrimary) || null;
   const generatedFiles = Array.isArray(product.generatedFiles) ? product.generatedFiles : [];
   const aiData = product.aiData;
   const status = product.status;
@@ -147,16 +150,42 @@ export function getLaunchSteps(product = {}) {
       label: "Artwork prepared (prep only)",
       icon: "🖼",
       optional: true,
-      done: !!(artworkAssets && artworkAssets.id) || artworkStatus === "prepped",
+      done: !!(artworkAssets && artworkAssets.artworkPrompt) ||
+            artworkStatus === "prepped" ||
+            artworkStatus === "uploaded" ||
+            artworkStatus === "approved",
       blockedBy: !selectedConcept
         ? "select"
         : !(podPrep && podPrep.id)
           ? "podPrep"
           : null,
-      meta: artworkAssets?.id
+      meta: artworkAssets?.artworkPrompt
         ? `${artworkAssets.transparentBackgroundRequired ? "Transparent PNG" : "Full-bleed"} · ${artworkAssets.recommendedCanvasSize || "canvas saved"}`
         : null,
       hint: "Builds an artwork brief + negative prompt + canvas spec. No image API is called."
+    },
+    {
+      key: "artworkUploaded",
+      label: "Artwork uploaded",
+      icon: "📤",
+      optional: true,
+      done: artworkItems.length > 0,
+      meta: artworkItems.length > 0
+        ? `${artworkItems.length} asset${artworkItems.length === 1 ? "" : "s"}${primaryArtworkItem ? ` · primary: ${primaryArtworkItem.originalFileName || primaryArtworkItem.fileName}`.slice(0, 80) : ""}`
+        : null,
+      hint: "Upload PNG / JPEG / WEBP / GIF / SVG artwork. Stored locally; no image API yet."
+    },
+    {
+      key: "artworkApproved",
+      label: "Artwork approved",
+      icon: "🟢",
+      optional: true,
+      done: !!approvedArtworkItem,
+      blockedBy: artworkItems.length === 0 ? "artworkUploaded" : null,
+      meta: approvedArtworkItem
+        ? `${approvedArtworkItem.originalFileName || approvedArtworkItem.fileName}`.slice(0, 80)
+        : null,
+      hint: "Open the Artwork section and click Approve on the asset you want to ship."
     },
     {
       key: "aiContent",
@@ -249,6 +278,16 @@ const NEXT_ACTIONS = {
     detail: "Generates a paste-ready artwork brief for image-generation tools (DALL·E / SDXL / Ideogram). No image APIs are called yet.",
     tone: "purple"
   },
+  artworkUploaded: {
+    label: "Upload artwork — PNG / JPEG / WEBP / GIF / SVG.",
+    detail: "Drop a finished asset into the Artwork section. Stored locally under backend/generated-artwork; no image API or Printify upload yet.",
+    tone: "accent"
+  },
+  artworkApproved: {
+    label: "Approve at least one artwork asset.",
+    detail: "Approve the artwork you plan to ship. Approving any asset unlocks downstream publish prep.",
+    tone: "success"
+  },
   aiContent: {
     label: "Run Generate AI Content for market scores + Etsy listing copy.",
     detail: "Fills demand / competition / originality / © risk + Etsy title/tags/description (uses mock data unless OPENAI_API_KEY is set).",
@@ -289,6 +328,8 @@ export function getNextAction(product = {}) {
     "designPackage",
     "printifyPreview",
     "artworkPrepared",
+    "artworkUploaded",
+    "artworkApproved",
     "aiContent",
     "approved",
     "etsy"
@@ -313,6 +354,8 @@ export function getNextActionShortLabel(product = {}) {
     case "designPackage": return "Generate design package";
     case "printifyPreview": return "Generate Printify preview";
     case "artworkPrepared": return "Prepare artwork";
+    case "artworkUploaded": return "Upload artwork";
+    case "artworkApproved": return "Approve artwork";
     case "aiContent": return "Generate AI content";
     case "approve": return "Approve listing";
     case "etsy": return "Create Etsy draft";

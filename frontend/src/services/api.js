@@ -129,6 +129,46 @@ export const generatePrintifyPreview = (id) =>
 export const prepareArtwork = (id) =>
   request("POST", `/products/${id}/prepare-artwork`);
 
+/**
+ * Upload a single artwork file (PNG / JPEG / WEBP / GIF / SVG).
+ * Files are stored locally under backend/generated-artwork and
+ * served at /artwork/<filename>.
+ *
+ * @param {string} id        Product id
+ * @param {File}   file      Browser File / Blob
+ * @param {object} [options]
+ * @param {"uploaded"|"manual"|"generated"|"mockup"} [options.type="uploaded"]
+ * @param {boolean} [options.isPrimary=false]
+ */
+export const uploadArtwork = async (id, file, options = {}) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("type", options.type || "uploaded");
+  if (options.isPrimary) fd.append("isPrimary", "true");
+
+  const response = await fetch(`${API_BASE_URL}/products/${id}/upload-artwork`, {
+    method: "POST",
+    body: fd
+  });
+  const data = await response.json();
+  if (!response.ok || !data.success) {
+    throw new Error(data.message || "Upload failed");
+  }
+  return data.data;
+};
+
+export const approveArtworkAsset = (id, assetId) =>
+  request("POST", `/products/${id}/artwork/${assetId}/approve`);
+
+export const rejectArtworkAsset = (id, assetId) =>
+  request("POST", `/products/${id}/artwork/${assetId}/reject`);
+
+export const setPrimaryArtworkAsset = (id, assetId) =>
+  request("POST", `/products/${id}/artwork/${assetId}/set-primary`);
+
+export const deleteArtworkAsset = (id, assetId) =>
+  request("DELETE", `/products/${id}/artwork/${assetId}`);
+
 // ---- Ideas / research intake API (SQLite-backed on the server) ----
 
 /** Fetch ideas; optional filters match GET /api/ideas query params */

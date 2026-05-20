@@ -2,7 +2,7 @@
 // PodConceptStudio — POD design concepts + listing preview
 // ============================================================
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   generateDesignConcepts,
   selectProductConcept,
@@ -11,7 +11,13 @@ import {
   generatePodPrep,
   generateDesignPackage,
   generatePrintifyPreview,
-  prepareArtwork
+  prepareArtwork,
+  uploadArtwork,
+  approveArtworkAsset,
+  rejectArtworkAsset,
+  setPrimaryArtworkAsset,
+  deleteArtworkAsset,
+  resolveDownloadUrl
 } from "../services/api";
 
 const SectionHeader = ({ title, icon }) => (
@@ -68,6 +74,8 @@ const PodConceptStudio = ({ product, onProductChange }) => {
   const printifyPreview = product.printifyPreview;
   const artworkAssets = product.artworkAssets;
   const artworkStatus = product.artworkStatus || "not_prepared";
+  const artworkItems = Array.isArray(artworkAssets?.items) ? artworkAssets.items : [];
+  const fileInputRef = useRef(null);
 
   const canDesignPackage = Boolean(
     product.selectedConceptId &&
@@ -1255,61 +1263,6 @@ const PodConceptStudio = ({ product, onProductChange }) => {
                 />
               </div>
 
-              {/* Placeholder for future generated / uploaded artwork */}
-              <div
-                style={{
-                  borderTop: "1px dashed var(--border)",
-                  paddingTop: "12px",
-                  marginTop: "4px"
-                }}
-              >
-                <div style={labelStyle}>Generated images / manual uploads</div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
-                    gap: "8px",
-                    marginTop: "6px"
-                  }}
-                >
-                  {[0, 1, 2, 3].map((i) => (
-                    <div
-                      key={i}
-                      style={{
-                        aspectRatio: "1 / 1",
-                        background: "var(--bg-secondary)",
-                        border: "1px dashed var(--border)",
-                        borderRadius: "var(--radius-sm)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "var(--text-muted)",
-                        fontSize: "10px",
-                        textAlign: "center",
-                        padding: "8px",
-                        lineHeight: 1.4
-                      }}
-                    >
-                      Empty slot
-                      <br />
-                      (future)
-                    </div>
-                  ))}
-                </div>
-                <div
-                  style={{
-                    fontSize: "10px",
-                    color: "var(--text-muted)",
-                    marginTop: "8px",
-                    lineHeight: 1.5
-                  }}
-                >
-                  Future step — image-generation API output (DALL·E / SDXL / Ideogram) or manual upload
-                  will appear here. Until then, generate art externally with the prompt above and keep
-                  finished PNGs alongside this product.
-                </div>
-              </div>
-
               <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "12px" }}>
                 Created {new Date(artworkAssets.createdAt).toLocaleString()}
                 {artworkAssets.source?.conceptId && (
@@ -1323,11 +1276,413 @@ const PodConceptStudio = ({ product, onProductChange }) => {
               </div>
             </div>
           )}
+
+          {/* ---- Artwork assets — upload + manage (always available) ---- */}
+          <ArtworkAssetManager
+            product={product}
+            items={artworkItems}
+            artworkStatus={artworkStatus}
+            loading={loading}
+            fileInputRef={fileInputRef}
+            onUpload={async (file, opts) => {
+              setLoading("artwork-upload");
+              setErr(null);
+              try {
+                const updated = await uploadArtwork(product.id, file, opts);
+                onProductChange(updated);
+              } catch (e) {
+                setErr(e.message || "Upload failed");
+              } finally {
+                setLoading(null);
+              }
+            }}
+            onApprove={(assetId) => run(`artwork-approve-${assetId}`, () => approveArtworkAsset(product.id, assetId))}
+            onReject={(assetId) => run(`artwork-reject-${assetId}`, () => rejectArtworkAsset(product.id, assetId))}
+            onSetPrimary={(assetId) => run(`artwork-primary-${assetId}`, () => setPrimaryArtworkAsset(product.id, assetId))}
+            onDelete={(assetId) => {
+              if (!window.confirm("Delete this artwork asset? The file will be removed from disk.")) return;
+              return run(`artwork-delete-${assetId}`, () => deleteArtworkAsset(product.id, assetId));
+            }}
+          />
         </div>
       </div>
     </div>
   );
 };
+
+// ============================================================
+// ArtworkAssetManager — upload control + asset grid for the
+// Artwork Generation Prep section. Always rendered; works
+// independently of whether the prep brief has been generated.
+// ============================================================
+function ArtworkAssetManager({
+  product,
+  items,
+  artworkStatus,
+  loading,
+  fileInputRef,
+  onUpload,
+  onApprove,
+  onReject,
+  onSetPrimary,
+  onDelete
+}) {
+  const uploading = loading === "artwork-upload";
+  const handleFileChange = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = ""; // allow re-uploading the same name
+    if (!f) return;
+    await onUpload(f, { type: "uploaded" });
+  };
+
+  const statusBadgeColor = (s) =>
+    s === "approved"
+      ? { color: "var(--success)", bg: "var(--success-dim)", border: "var(--success)" }
+      : s === "rejected"
+        ? { color: "var(--danger)", bg: "var(--danger-dim)", border: "var(--danger)" }
+        : { color: "var(--accent)", bg: "var(--accent-dim)", border: "var(--accent)" };
+
+  return (
+    <div
+      style={{
+        borderTop: "1px dashed var(--border)",
+        paddingTop: "14px",
+        marginTop: "14px"
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          flexWrap: "wrap",
+          marginBottom: "8px"
+        }}
+      >
+        <div
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 800,
+            fontSize: "12px",
+            letterSpacing: "0.05em",
+            textTransform: "uppercase",
+            color: "var(--accent)"
+          }}
+        >
+          Artwork assets
+        </div>
+        <span
+          style={{
+            fontSize: "10px",
+            fontWeight: 800,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: "var(--text-secondary)",
+            background: "var(--bg-secondary)",
+            border: "1px solid var(--border)",
+            padding: "2px 8px",
+            borderRadius: "999px",
+            fontFamily: "var(--font-display)"
+          }}
+        >
+          {artworkStatus || "not_prepared"}
+        </span>
+        <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+          {items.length} asset{items.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          flexWrap: "wrap",
+          marginBottom: "10px"
+        }}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+          onChange={handleFileChange}
+          disabled={uploading}
+          style={{ display: "none" }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current && fileInputRef.current.click()}
+          disabled={!!loading}
+          style={{
+            padding: "8px 14px",
+            background: uploading ? "var(--bg-primary)" : "var(--accent)",
+            color: uploading ? "var(--text-muted)" : "#0d1117",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            fontSize: "12px",
+            fontWeight: 700,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px"
+          }}
+        >
+          {uploading ? <span className="spinner" /> : <span>📤</span>}
+          {uploading ? "Uploading…" : "Upload artwork"}
+        </button>
+        <span style={{ fontSize: "11px", color: "var(--text-muted)", lineHeight: 1.4 }}>
+          PNG / JPEG / WEBP / GIF / SVG · max 20 MB · stored locally (no image API)
+        </span>
+      </div>
+
+      {items.length === 0 && (
+        <div
+          style={{
+            padding: "18px 14px",
+            border: "1px dashed var(--border)",
+            borderRadius: "var(--radius-sm)",
+            color: "var(--text-muted)",
+            fontSize: "12px",
+            textAlign: "center",
+            lineHeight: 1.5
+          }}
+        >
+          No artwork uploaded yet. Generate art externally using the brief above (or your own
+          process), then upload finished PNGs / JPEGs here.
+        </div>
+      )}
+
+      {items.length > 0 && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+            gap: "10px"
+          }}
+        >
+          {items.map((item) => {
+            const badge = statusBadgeColor(item.status);
+            const imgSrc = resolveDownloadUrl(item.previewUrl || item.fileUrl) || "";
+            return (
+              <div
+                key={item.id}
+                style={{
+                  position: "relative",
+                  border: `1px solid ${item.isPrimary ? "var(--accent)" : "var(--border)"}`,
+                  background: "var(--bg-secondary)",
+                  borderRadius: "var(--radius-sm)",
+                  overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column"
+                }}
+              >
+                {item.isPrimary && (
+                  <span
+                    title="Primary artwork"
+                    style={{
+                      position: "absolute",
+                      top: "6px",
+                      left: "6px",
+                      zIndex: 1,
+                      background: "var(--accent)",
+                      color: "#0d1117",
+                      fontSize: "9px",
+                      fontWeight: 800,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      padding: "2px 6px",
+                      borderRadius: "999px",
+                      fontFamily: "var(--font-display)"
+                    }}
+                  >
+                    ★ Primary
+                  </span>
+                )}
+                <a
+                  href={imgSrc}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "block",
+                    aspectRatio: "1 / 1",
+                    background: "#11161c",
+                    overflow: "hidden",
+                    position: "relative"
+                  }}
+                >
+                  {imgSrc ? (
+                    <img
+                      src={imgSrc}
+                      alt={item.originalFileName || item.fileName}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "contain",
+                        display: "block",
+                        background:
+                          "repeating-conic-gradient(#222 0% 25%, transparent 0% 50%) 50% / 16px 16px"
+                      }}
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "var(--text-muted)",
+                        fontSize: "11px"
+                      }}
+                    >
+                      No preview
+                    </div>
+                  )}
+                </a>
+
+                <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <div
+                    title={item.originalFileName || item.fileName}
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      color: "var(--text-primary)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis"
+                    }}
+                  >
+                    {item.originalFileName || item.fileName}
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        fontWeight: 800,
+                        letterSpacing: "0.05em",
+                        textTransform: "uppercase",
+                        color: badge.color,
+                        background: badge.bg,
+                        border: `1px solid ${badge.border}`,
+                        padding: "1px 6px",
+                        borderRadius: "999px",
+                        fontFamily: "var(--font-display)"
+                      }}
+                    >
+                      {item.status || "draft"}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        fontWeight: 700,
+                        letterSpacing: "0.05em",
+                        textTransform: "uppercase",
+                        color: "var(--text-secondary)",
+                        background: "var(--bg-primary)",
+                        border: "1px solid var(--border)",
+                        padding: "1px 6px",
+                        borderRadius: "999px",
+                        fontFamily: "var(--font-display)"
+                      }}
+                    >
+                      {item.type || "uploaded"}
+                    </span>
+                  </div>
+
+                  <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.45 }}>
+                    {(item.width && item.height)
+                      ? `${item.width} × ${item.height}px`
+                      : "— × —"}
+                    {" · "}
+                    {item.transparentBackground ? "Transparent" : "Opaque (no alpha)"}
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                    <ArtworkActionBtn
+                      onClick={() => onApprove(item.id)}
+                      disabled={!!loading || item.status === "approved"}
+                      tone="success"
+                    >
+                      ✓ Approve
+                    </ArtworkActionBtn>
+                    <ArtworkActionBtn
+                      onClick={() => onReject(item.id)}
+                      disabled={!!loading || item.status === "rejected"}
+                      tone="danger"
+                    >
+                      ✕ Reject
+                    </ArtworkActionBtn>
+                    {!item.isPrimary && (
+                      <ArtworkActionBtn
+                        onClick={() => onSetPrimary(item.id)}
+                        disabled={!!loading}
+                        tone="accent"
+                      >
+                        ★ Primary
+                      </ArtworkActionBtn>
+                    )}
+                    <ArtworkActionBtn
+                      onClick={() => onDelete(item.id)}
+                      disabled={!!loading}
+                      tone="muted"
+                    >
+                      🗑 Delete
+                    </ArtworkActionBtn>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div
+        style={{
+          fontSize: "10px",
+          color: "var(--text-muted)",
+          marginTop: "10px",
+          lineHeight: 1.5
+        }}
+      >
+        Files are stored locally under <code>backend/generated-artwork/</code> and served at{" "}
+        <code>/artwork/&lt;filename&gt;</code>. The same surface is designed to receive future
+        image-generation API output and Printify upload responses without changing call sites.
+      </div>
+    </div>
+  );
+}
+
+function ArtworkActionBtn({ children, onClick, disabled, tone }) {
+  const palette = {
+    success: { color: "var(--success)", border: "var(--success)", bg: "var(--success-dim)" },
+    danger: { color: "var(--danger)", border: "var(--danger)", bg: "var(--danger-dim)" },
+    accent: { color: "var(--accent)", border: "var(--accent)", bg: "var(--accent-dim)" },
+    muted: { color: "var(--text-secondary)", border: "var(--border)", bg: "var(--bg-primary)" }
+  }[tone || "muted"];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        padding: "3px 7px",
+        fontSize: "10px",
+        fontWeight: 700,
+        borderRadius: "4px",
+        border: `1px solid ${palette.border}`,
+        background: palette.bg,
+        color: palette.color,
+        opacity: disabled ? 0.5 : 1,
+        flexShrink: 0
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 function SmallStat({ label, value }) {
   return (

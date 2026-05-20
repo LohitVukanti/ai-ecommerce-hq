@@ -38,6 +38,51 @@ const {
 } = require("../services/designPackageService");
 const { buildPrintifyPreview } = require("../services/printifyPreviewService");
 const { buildArtworkPrep } = require("../services/artworkPrepService");
+const {
+  ARTWORK_DIR,
+  ALLOWED_MIME_TYPES,
+  ALLOWED_TYPES: ARTWORK_ALLOWED_TYPES,
+  MAX_UPLOAD_BYTES,
+  addItem,
+  updateItemStatus,
+  setPrimary,
+  removeItem,
+  deriveArtworkStatus,
+  stripPrepKeepItems,
+  buildNewItem,
+  tryDeleteFile,
+  getItems
+} = require("../services/artworkAssetService");
+
+// ---- Multer setup for artwork uploads ----
+// We accept ONE file per request under field name `file`. The file is
+// first written to a multer-generated temp name inside ARTWORK_DIR,
+// then renamed by buildNewItem() to `<productId>_<assetId>_<orig>`
+// for stable URLs and easy cleanup.
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+
+const artworkUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      if (!fs.existsSync(ARTWORK_DIR)) fs.mkdirSync(ARTWORK_DIR, { recursive: true });
+      cb(null, ARTWORK_DIR);
+    },
+    filename: (_req, file, cb) => {
+      // Temporary collision-proof name; renamed by buildNewItem().
+      cb(null, `upload_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${path.basename(file.originalname || "asset")}`);
+    }
+  }),
+  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.has((file.mimetype || "").toLowerCase())) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported file type: ${file.mimetype}. Use PNG, JPEG, WEBP, GIF, or SVG.`));
+    }
+  }
+});
 
 // ============================================================
 // GET /api/products
@@ -203,6 +248,7 @@ router.post("/:id/generate-concepts", async (req, res) => {
     }
 
     const { concepts } = await generatePodConceptsAsync(product);
+    const carriedArtwork = stripPrepKeepItems(product.artworkAssets);
     const updatedProduct = updateProduct(req.params.id, {
       generatedConcepts: concepts,
       selectedConceptId: null,
@@ -210,8 +256,8 @@ router.post("/:id/generate-concepts", async (req, res) => {
       podPrep: null,
       designPackage: null,
       printifyPreview: null,
-      artworkStatus: "not_prepared",
-      artworkAssets: null
+      artworkStatus: deriveArtworkStatus(carriedArtwork),
+      artworkAssets: carriedArtwork
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -254,14 +300,12 @@ router.post("/:id/select-concept", (req, res) => {
     let podPrep = product.podPrep;
     let designPackage = product.designPackage;
     let printifyPreview = product.printifyPreview;
-    let artworkStatus = product.artworkStatus || "not_prepared";
     let artworkAssets = product.artworkAssets;
     if (product.podPrep && product.podPrep.selectedConceptId !== conceptId) {
       podPrep = null;
       designPackage = null;
       printifyPreview = null;
-      artworkStatus = "not_prepared";
-      artworkAssets = null;
+      artworkAssets = stripPrepKeepItems(artworkAssets);
     }
 
     const updatedProduct = updateProduct(req.params.id, {
@@ -270,7 +314,7 @@ router.post("/:id/select-concept", (req, res) => {
       podPrep,
       designPackage,
       printifyPreview,
-      artworkStatus,
+      artworkStatus: deriveArtworkStatus(artworkAssets),
       artworkAssets
     });
 
@@ -308,15 +352,13 @@ router.post("/:id/reject-concept", (req, res) => {
     let podPrep = product.podPrep;
     let designPackage = product.designPackage;
     let printifyPreview = product.printifyPreview;
-    let artworkStatus = product.artworkStatus || "not_prepared";
     let artworkAssets = product.artworkAssets;
     if (selectedConceptId === conceptId) {
       selectedConceptId = null;
       podPrep = null;
       designPackage = null;
       printifyPreview = null;
-      artworkStatus = "not_prepared";
-      artworkAssets = null;
+      artworkAssets = stripPrepKeepItems(artworkAssets);
     }
 
     const updatedProduct = updateProduct(req.params.id, {
@@ -325,7 +367,7 @@ router.post("/:id/reject-concept", (req, res) => {
       podPrep,
       designPackage,
       printifyPreview,
-      artworkStatus,
+      artworkStatus: deriveArtworkStatus(artworkAssets),
       artworkAssets
     });
 
@@ -366,12 +408,13 @@ router.post("/:id/generate-listing", async (req, res) => {
     }
 
     const listingData = await buildPodListingFromConceptAsync(product, concept);
+    const carriedArtwork = stripPrepKeepItems(product.artworkAssets);
     const updatedProduct = updateProduct(req.params.id, {
       listingData,
       designPackage: null,
       printifyPreview: null,
-      artworkStatus: "not_prepared",
-      artworkAssets: null
+      artworkStatus: deriveArtworkStatus(carriedArtwork),
+      artworkAssets: carriedArtwork
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -421,12 +464,13 @@ router.post("/:id/generate-pod-prep", (req, res) => {
     }
 
     const podPrep = buildPodPrepFromConcept(product, concept);
+    const carriedArtwork = stripPrepKeepItems(product.artworkAssets);
     const updatedProduct = updateProduct(req.params.id, {
       podPrep,
       designPackage: null,
       printifyPreview: null,
-      artworkStatus: "not_prepared",
-      artworkAssets: null
+      artworkStatus: deriveArtworkStatus(carriedArtwork),
+      artworkAssets: carriedArtwork
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -500,11 +544,12 @@ router.post("/:id/generate-design-package", async (req, res) => {
     }
 
     const designPackage = await buildDesignPackageAsync(product, concept, listingData, podPrep);
+    const carriedArtwork = stripPrepKeepItems(product.artworkAssets);
     const updatedProduct = updateProduct(req.params.id, {
       designPackage,
       printifyPreview: null,
-      artworkStatus: "not_prepared",
-      artworkAssets: null
+      artworkStatus: deriveArtworkStatus(carriedArtwork),
+      artworkAssets: carriedArtwork
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -592,10 +637,11 @@ router.post("/:id/generate-printify-preview", (req, res) => {
       listingData,
       designPackage
     );
+    const carriedArtwork = stripPrepKeepItems(product.artworkAssets);
     const updatedProduct = updateProduct(req.params.id, {
       printifyPreview,
-      artworkStatus: "not_prepared",
-      artworkAssets: null
+      artworkStatus: deriveArtworkStatus(carriedArtwork),
+      artworkAssets: carriedArtwork
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -673,7 +719,7 @@ router.post("/:id/prepare-artwork", (req, res) => {
         ? product.printifyPreview
         : null;
 
-    const artworkAssets = buildArtworkPrep(
+    const newPrep = buildArtworkPrep(
       product,
       concept,
       podPrep,
@@ -682,8 +728,12 @@ router.post("/:id/prepare-artwork", (req, res) => {
       printifyPreview
     );
 
+    // Merge new prep on top of existing artwork — preserves uploaded items.
+    const existingItems = getItems(product.artworkAssets);
+    const artworkAssets = { ...newPrep, items: existingItems };
+
     const updatedProduct = updateProduct(req.params.id, {
-      artworkStatus: artworkAssets.status || "prepped",
+      artworkStatus: deriveArtworkStatus(artworkAssets),
       artworkAssets
     });
 
@@ -691,6 +741,173 @@ router.post("/:id/prepare-artwork", (req, res) => {
   } catch (error) {
     console.error("Error preparing artwork:", error);
     res.status(500).json({ success: false, message: "Failed to prepare artwork" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/upload-artwork  (multipart)
+// Form fields:
+//   file        — REQUIRED. PNG / JPEG / WEBP / GIF / SVG. Max 20 MB.
+//   type        — optional: "uploaded" (default) | "manual" | "generated" | "mockup"
+//   isPrimary   — optional: "true" to flag this asset as the primary
+// No image-generation API is used; this just stores the file locally.
+// ============================================================
+router.post(
+  "/:id/upload-artwork",
+  // Wrap multer so we can translate its errors into JSON 400s.
+  (req, res, next) => {
+    artworkUpload.single("file")(req, res, (err) => {
+      if (err) {
+        const status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+        return res.status(status).json({
+          success: false,
+          message: err.message || "Upload failed"
+        });
+      }
+      next();
+    });
+  },
+  (req, res) => {
+    const productId = req.params.id;
+    const product = getProductById(productId);
+
+    if (!product) {
+      // Clean the partial upload to avoid orphan files.
+      if (req.file && req.file.path) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+      }
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No file uploaded. Send a multipart/form-data request with a 'file' field."
+      });
+    }
+
+    try {
+      const requestedType = (req.body && req.body.type) || "uploaded";
+      const requestedPrimary =
+        (req.body && (req.body.isPrimary === "true" || req.body.isPrimary === true)) === true;
+
+      const newItem = buildNewItem({
+        productId,
+        type: ARTWORK_ALLOWED_TYPES.has(requestedType) ? requestedType : "uploaded",
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        sizeBytes: req.file.size,
+        diskPath: req.file.path,
+        sourceConceptId: product.selectedConceptId || null,
+        requestedPrimary
+      });
+
+      const nextArtwork = addItem(product.artworkAssets, newItem);
+      const updatedProduct = updateProduct(productId, {
+        artworkStatus: deriveArtworkStatus(nextArtwork),
+        artworkAssets: nextArtwork
+      });
+
+      res.json({ success: true, data: updatedProduct });
+    } catch (error) {
+      console.error("Error storing artwork upload:", error);
+      // Best-effort: remove the partial file if rename or DB write failed.
+      if (req.file && req.file.path) {
+        try { fs.unlinkSync(req.file.path); } catch (_) {}
+      }
+      res.status(500).json({ success: false, message: "Failed to save uploaded artwork" });
+    }
+  }
+);
+
+// ============================================================
+// POST /api/products/:id/artwork/:assetId/approve
+// POST /api/products/:id/artwork/:assetId/reject
+// (status enum: "draft" | "approved" | "rejected")
+// ============================================================
+function applyArtworkStatusRoute(targetStatus) {
+  return (req, res) => {
+    try {
+      const product = getProductById(req.params.id);
+      if (!product) {
+        return res.status(404).json({ success: false, message: "Product not found" });
+      }
+
+      const nextArtwork = updateItemStatus(product.artworkAssets, req.params.assetId, targetStatus);
+      if (!nextArtwork) {
+        return res.status(404).json({ success: false, message: "Artwork asset not found" });
+      }
+
+      const updatedProduct = updateProduct(req.params.id, {
+        artworkStatus: deriveArtworkStatus(nextArtwork),
+        artworkAssets: nextArtwork
+      });
+      res.json({ success: true, data: updatedProduct });
+    } catch (error) {
+      console.error(`Error setting artwork status to ${targetStatus}:`, error);
+      res.status(500).json({ success: false, message: `Failed to ${targetStatus} artwork` });
+    }
+  };
+}
+
+router.post("/:id/artwork/:assetId/approve", applyArtworkStatusRoute("approved"));
+router.post("/:id/artwork/:assetId/reject", applyArtworkStatusRoute("rejected"));
+
+// ============================================================
+// POST /api/products/:id/artwork/:assetId/set-primary
+// Promotes an asset to the primary artwork (demotes the rest).
+// ============================================================
+router.post("/:id/artwork/:assetId/set-primary", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const nextArtwork = setPrimary(product.artworkAssets, req.params.assetId);
+    if (!nextArtwork) {
+      return res.status(404).json({ success: false, message: "Artwork asset not found" });
+    }
+
+    const updatedProduct = updateProduct(req.params.id, {
+      artworkStatus: deriveArtworkStatus(nextArtwork),
+      artworkAssets: nextArtwork
+    });
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error setting primary artwork:", error);
+    res.status(500).json({ success: false, message: "Failed to set primary artwork" });
+  }
+});
+
+// ============================================================
+// DELETE /api/products/:id/artwork/:assetId
+// Removes the record AND the underlying file on disk.
+// ============================================================
+router.delete("/:id/artwork/:assetId", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const result = removeItem(product.artworkAssets, req.params.assetId);
+    if (!result) {
+      return res.status(404).json({ success: false, message: "Artwork asset not found" });
+    }
+
+    // Delete the file from disk *before* updating the DB so a partial
+    // failure leaves the DB record pointing to a file that still exists.
+    tryDeleteFile(result.removed);
+
+    const updatedProduct = updateProduct(req.params.id, {
+      artworkStatus: deriveArtworkStatus(result.next),
+      artworkAssets: result.next
+    });
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error deleting artwork asset:", error);
+    res.status(500).json({ success: false, message: "Failed to delete artwork asset" });
   }
 });
 
@@ -798,6 +1015,13 @@ router.delete("/:id", (req, res) => {
 
     if (!product) {
       return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    // Best-effort cascade cleanup: delete any uploaded artwork files from
+    // disk so we don't orphan them. The DB record goes away in the next step.
+    const items = getItems(product.artworkAssets);
+    for (const item of items) {
+      tryDeleteFile(item);
     }
 
     const deleted = deleteProduct(req.params.id);
