@@ -32,6 +32,8 @@ export function getLaunchSteps(product = {}) {
   const podPrep = product.podPrep;
   const designPackage = product.designPackage;
   const printifyPreview = product.printifyPreview;
+  const artworkAssets = product.artworkAssets;
+  const artworkStatus = product.artworkStatus || "not_prepared";
   const generatedFiles = Array.isArray(product.generatedFiles) ? product.generatedFiles : [];
   const aiData = product.aiData;
   const status = product.status;
@@ -141,6 +143,22 @@ export function getLaunchSteps(product = {}) {
       hint: "Generates a Printify-shaped payload preview. No keys, no live publish."
     },
     {
+      key: "artworkPrepared",
+      label: "Artwork prepared (prep only)",
+      icon: "🖼",
+      optional: true,
+      done: !!(artworkAssets && artworkAssets.id) || artworkStatus === "prepped",
+      blockedBy: !selectedConcept
+        ? "select"
+        : !(podPrep && podPrep.id)
+          ? "podPrep"
+          : null,
+      meta: artworkAssets?.id
+        ? `${artworkAssets.transparentBackgroundRequired ? "Transparent PNG" : "Full-bleed"} · ${artworkAssets.recommendedCanvasSize || "canvas saved"}`
+        : null,
+      hint: "Builds an artwork brief + negative prompt + canvas spec. No image API is called."
+    },
+    {
       key: "aiContent",
       label: "AI listing content (Etsy/AI path)",
       icon: "🤖",
@@ -226,6 +244,11 @@ const NEXT_ACTIONS = {
     detail: "Builds a Printify-shaped payload (blueprint, provider, variants, print areas) for review. Preview mode only — not sent to Printify.",
     tone: "accent"
   },
+  artworkPrepared: {
+    label: "Prepare artwork — brief, negative prompt, canvas spec.",
+    detail: "Generates a paste-ready artwork brief for image-generation tools (DALL·E / SDXL / Ideogram). No image APIs are called yet.",
+    tone: "purple"
+  },
   aiContent: {
     label: "Run Generate AI Content for market scores + Etsy listing copy.",
     detail: "Fills demand / competition / originality / © risk + Etsy title/tags/description (uses mock data unless OPENAI_API_KEY is set).",
@@ -265,6 +288,7 @@ export function getNextAction(product = {}) {
     "podPrep",
     "designPackage",
     "printifyPreview",
+    "artworkPrepared",
     "aiContent",
     "approved",
     "etsy"
@@ -288,6 +312,7 @@ export function getNextActionShortLabel(product = {}) {
     case "podPrep": return "Generate POD prep";
     case "designPackage": return "Generate design package";
     case "printifyPreview": return "Generate Printify preview";
+    case "artworkPrepared": return "Prepare artwork";
     case "aiContent": return "Generate AI content";
     case "approve": return "Approve listing";
     case "etsy": return "Create Etsy draft";

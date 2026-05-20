@@ -37,6 +37,7 @@ const {
   buildDesignPackageAsync
 } = require("../services/designPackageService");
 const { buildPrintifyPreview } = require("../services/printifyPreviewService");
+const { buildArtworkPrep } = require("../services/artworkPrepService");
 
 // ============================================================
 // GET /api/products
@@ -208,7 +209,9 @@ router.post("/:id/generate-concepts", async (req, res) => {
       listingData: null,
       podPrep: null,
       designPackage: null,
-      printifyPreview: null
+      printifyPreview: null,
+      artworkStatus: "not_prepared",
+      artworkAssets: null
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -251,10 +254,14 @@ router.post("/:id/select-concept", (req, res) => {
     let podPrep = product.podPrep;
     let designPackage = product.designPackage;
     let printifyPreview = product.printifyPreview;
+    let artworkStatus = product.artworkStatus || "not_prepared";
+    let artworkAssets = product.artworkAssets;
     if (product.podPrep && product.podPrep.selectedConceptId !== conceptId) {
       podPrep = null;
       designPackage = null;
       printifyPreview = null;
+      artworkStatus = "not_prepared";
+      artworkAssets = null;
     }
 
     const updatedProduct = updateProduct(req.params.id, {
@@ -262,7 +269,9 @@ router.post("/:id/select-concept", (req, res) => {
       selectedConceptId: conceptId,
       podPrep,
       designPackage,
-      printifyPreview
+      printifyPreview,
+      artworkStatus,
+      artworkAssets
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -299,11 +308,15 @@ router.post("/:id/reject-concept", (req, res) => {
     let podPrep = product.podPrep;
     let designPackage = product.designPackage;
     let printifyPreview = product.printifyPreview;
+    let artworkStatus = product.artworkStatus || "not_prepared";
+    let artworkAssets = product.artworkAssets;
     if (selectedConceptId === conceptId) {
       selectedConceptId = null;
       podPrep = null;
       designPackage = null;
       printifyPreview = null;
+      artworkStatus = "not_prepared";
+      artworkAssets = null;
     }
 
     const updatedProduct = updateProduct(req.params.id, {
@@ -311,7 +324,9 @@ router.post("/:id/reject-concept", (req, res) => {
       selectedConceptId,
       podPrep,
       designPackage,
-      printifyPreview
+      printifyPreview,
+      artworkStatus,
+      artworkAssets
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -354,7 +369,9 @@ router.post("/:id/generate-listing", async (req, res) => {
     const updatedProduct = updateProduct(req.params.id, {
       listingData,
       designPackage: null,
-      printifyPreview: null
+      printifyPreview: null,
+      artworkStatus: "not_prepared",
+      artworkAssets: null
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -407,7 +424,9 @@ router.post("/:id/generate-pod-prep", (req, res) => {
     const updatedProduct = updateProduct(req.params.id, {
       podPrep,
       designPackage: null,
-      printifyPreview: null
+      printifyPreview: null,
+      artworkStatus: "not_prepared",
+      artworkAssets: null
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -481,7 +500,12 @@ router.post("/:id/generate-design-package", async (req, res) => {
     }
 
     const designPackage = await buildDesignPackageAsync(product, concept, listingData, podPrep);
-    const updatedProduct = updateProduct(req.params.id, { designPackage, printifyPreview: null });
+    const updatedProduct = updateProduct(req.params.id, {
+      designPackage,
+      printifyPreview: null,
+      artworkStatus: "not_prepared",
+      artworkAssets: null
+    });
 
     res.json({ success: true, data: updatedProduct });
   } catch (error) {
@@ -568,12 +592,105 @@ router.post("/:id/generate-printify-preview", (req, res) => {
       listingData,
       designPackage
     );
-    const updatedProduct = updateProduct(req.params.id, { printifyPreview });
+    const updatedProduct = updateProduct(req.params.id, {
+      printifyPreview,
+      artworkStatus: "not_prepared",
+      artworkAssets: null
+    });
 
     res.json({ success: true, data: updatedProduct });
   } catch (error) {
     console.error("Error generating Printify preview:", error);
     res.status(500).json({ success: false, message: "Failed to generate Printify preview" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/prepare-artwork
+// Pure template (no image APIs, no OpenAI). Builds an artwork
+// brief + negative prompt + canvas / file specs from the
+// selected concept and POD prep. Listing / design package /
+// Printify preview enrich the output when present.
+// ============================================================
+router.post("/:id/prepare-artwork", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const selectedId = product.selectedConceptId;
+    if (!selectedId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Select a concept first. Then generate POD prep before preparing artwork."
+      });
+    }
+
+    const list = Array.isArray(product.generatedConcepts) ? product.generatedConcepts : [];
+    const concept = list.find((c) => c.id === selectedId);
+
+    if (!concept || concept.conceptStatus === "rejected") {
+      return res.status(400).json({
+        success: false,
+        message: "Selected concept is missing or rejected. Select a valid concept and try again."
+      });
+    }
+
+    const podPrep = product.podPrep;
+    if (!podPrep || typeof podPrep !== "object" || !podPrep.id) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Generate POD prep first — the artwork brief uses its placement, color, and print-area fields."
+      });
+    }
+
+    if (podPrep.selectedConceptId && podPrep.selectedConceptId !== selectedId) {
+      return res.status(400).json({
+        success: false,
+        message: "POD prep is for a different concept. Regenerate POD prep for your current selection."
+      });
+    }
+
+    // Optional enrichers — only use when they belong to the same selected concept.
+    const listingData =
+      product.listingData &&
+      (!product.listingData.fromConceptId || product.listingData.fromConceptId === selectedId)
+        ? product.listingData
+        : null;
+
+    const designPackage =
+      product.designPackage && product.designPackage.selectedConceptId === selectedId
+        ? product.designPackage
+        : null;
+
+    // Printify preview uses `sourceConceptId` (see printifyPreviewService.js).
+    const printifyPreview =
+      product.printifyPreview && product.printifyPreview.sourceConceptId === selectedId
+        ? product.printifyPreview
+        : null;
+
+    const artworkAssets = buildArtworkPrep(
+      product,
+      concept,
+      podPrep,
+      listingData,
+      designPackage,
+      printifyPreview
+    );
+
+    const updatedProduct = updateProduct(req.params.id, {
+      artworkStatus: artworkAssets.status || "prepped",
+      artworkAssets
+    });
+
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error preparing artwork:", error);
+    res.status(500).json({ success: false, message: "Failed to prepare artwork" });
   }
 });
 

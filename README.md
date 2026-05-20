@@ -46,6 +46,26 @@ Once a product has a **selected concept + listing + POD prep**, click **Generate
 > **Preview mode only — not connected to Printify API yet.**
 > No `PRINTIFY_API_KEY` is required. Backend route: `POST /api/products/:id/generate-printify-preview`. Persisted in SQLite as `products.printifyPreview` (new column; auto-migrated by `db.js`). Whenever upstream data changes (concept selection, listing, POD prep, design package), the preview is invalidated automatically to stay consistent.
 
+### Artwork generation prep (preparation mode) (new)
+
+Once a product has a **selected concept + POD prep** (listing / design package / Printify preview enrich the brief when present), click **Prepare Artwork** in the Concept Studio to save `artworkAssets` + flip `artworkStatus` to `"prepped"` on the product. It's a **pure template generator** — no image-generation API is called, no keys are needed. Persisted fields on `products.artworkAssets`:
+
+- `artworkPrompt` — full brief composed from concept (aesthetic, slogan, palette, placement) + POD prep (color, print area) + optional design-package master prompt + Printify blueprint hint. Paste-ready for DALL·E, SDXL, Ideogram, etc.
+- `negativePrompt` — curated IP-safe block (no third-party logos, no trademarks, no celebrity likenesses, no garbled text, no halftone moiré, etc.)
+- `styleNotes` — short tags-line for aesthetic / palette / placement / trend alignment / IP posture
+- `recommendedCanvasSize` — shape-aware (e.g. `4500 × 5400 px @ 300 DPI, sRGB (front print)` for a T-shirt; `5400 × 7200 px (18×24 in with 0.125" full-bleed)` for a poster)
+- `transparentBackgroundRequired` — `true` for apparel + sticker + tote, `false` for poster
+- `printFileRequirements` — best of (Printify preview file reqs → design-package print-file guidelines → POD prep print-file requirements → shape default), so this field is never thin
+- `status` — currently `"prepped"`. `"image_generated"` and `"uploaded"` are reserved for a future image-API / manual-upload pass.
+- `generatedImages: []` / `manualUploads: []` — placeholder arrays the UI renders as empty slots, ready to be wired to a real image-generation provider or upload flow later
+- `source` — provenance: which `conceptId` / `podPrepId` / `listingFromConceptId` / `designPackageId` / `printifyPreviewId` produced this brief
+- `createdAt`
+
+The UI shows the brief + negative prompt as **copy-ready blocks** (with copy buttons), plus a third "Copy combined prompt + negatives" button and a 4-slot empty placeholder grid for future generated / uploaded artwork.
+
+> **Preparation mode only — no image APIs are called yet.**
+> Backend route: `POST /api/products/:id/prepare-artwork`. Requires a selected concept + POD prep; listing / design package / Printify preview are optional enrichers. Persisted in SQLite as `products.artworkStatus` + `products.artworkAssets` (new columns; auto-migrated by `db.js`). Whenever upstream data changes (concept selection, listing, POD prep, design package, Printify preview), artwork prep is invalidated automatically.
+
 ### Launch checklist & recommended next action (new)
 
 Every product detail modal now shows a **Product Launch Checklist** at the top: trend/idea source, idea scored, product created, design concepts generated, concept selected, listing generated, POD prep, design package, AI listing content (optional), digital product CSV (optional), approved, Etsy draft (simulated), and a placeholder **Published** step (future Printify/Etsy publish). Each step is marked **done / pending / blocked / optional / future** with a short hint and live progress bar.
@@ -103,7 +123,8 @@ ai-ecommerce-hq/
 │   │   ├── opportunityScorer.js ← Rule-based idea scoring + optional OpenAI narrative
 │   │   ├── podConceptService.js ← POD concepts + listing (template + optional OpenAI augmentation)
 │   │   ├── designPackageService.js ← Design package (template + optional OpenAI augmentation)
-│   │   └── printifyPreviewService.js ← Printify draft preview (pure template; preview mode)
+│   │   ├── printifyPreviewService.js ← Printify draft preview (pure template; preview mode)
+│   │   └── artworkPrepService.js  ← Artwork generation prep (pure template; preparation mode, no image APIs)
 │   └── data/
 │       ├── db.js              ← SQLite (products + ideas + trend_scans)
 │       └── products.sqlite    ← Created automatically (gitignored)

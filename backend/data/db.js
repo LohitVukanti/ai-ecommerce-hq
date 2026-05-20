@@ -24,6 +24,8 @@ db.exec(`
     podPrep TEXT,
     designPackage TEXT,
     printifyPreview TEXT,
+    artworkStatus TEXT,
+    artworkAssets TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL
   )
@@ -48,6 +50,12 @@ db.exec(`
   }
   if (!cols.includes("printifyPreview")) {
     db.exec(`ALTER TABLE products ADD COLUMN printifyPreview TEXT`);
+  }
+  if (!cols.includes("artworkStatus")) {
+    db.exec(`ALTER TABLE products ADD COLUMN artworkStatus TEXT`);
+  }
+  if (!cols.includes("artworkAssets")) {
+    db.exec(`ALTER TABLE products ADD COLUMN artworkAssets TEXT`);
   }
 })();
 
@@ -134,7 +142,9 @@ const rowToProduct = (row) => {
     listingData: parseJson(row.listingData, null),
     podPrep: parseJson(row.podPrep, null),
     designPackage: parseJson(row.designPackage, null),
-    printifyPreview: parseJson(row.printifyPreview, null)
+    printifyPreview: parseJson(row.printifyPreview, null),
+    artworkStatus: row.artworkStatus || "not_prepared",
+    artworkAssets: parseJson(row.artworkAssets, null)
   };
 };
 
@@ -176,7 +186,9 @@ const createProduct = (data) => {
     listingData: null,
     podPrep: null,
     designPackage: null,
-    printifyPreview: null
+    printifyPreview: null,
+    artworkStatus: "not_prepared",
+    artworkAssets: null
   };
 
   db.prepare(`
@@ -184,9 +196,10 @@ const createProduct = (data) => {
       id, title, description, category, status,
       aiData, etsyDraft, digitalProduct, generatedFiles,
       generatedConcepts, selectedConceptId, listingData, podPrep, designPackage, printifyPreview,
+      artworkStatus, artworkAssets,
       createdAt, updatedAt
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     newProduct.id,
     newProduct.title,
@@ -203,6 +216,8 @@ const createProduct = (data) => {
     serializeJson(newProduct.podPrep),
     serializeJson(newProduct.designPackage),
     serializeJson(newProduct.printifyPreview),
+    newProduct.artworkStatus,
+    serializeJson(newProduct.artworkAssets),
     newProduct.createdAt,
     newProduct.updatedAt
   );
@@ -241,6 +256,16 @@ const updateProduct = (id, updates) => {
       ? updatedProduct.printifyPreview
       : existing.printifyPreview;
 
+  const artworkStatus =
+    updatedProduct.artworkStatus !== undefined
+      ? updatedProduct.artworkStatus
+      : existing.artworkStatus || "not_prepared";
+
+  const artworkAssets =
+    updatedProduct.artworkAssets !== undefined
+      ? updatedProduct.artworkAssets
+      : existing.artworkAssets;
+
   db.prepare(`
     UPDATE products
     SET
@@ -258,6 +283,8 @@ const updateProduct = (id, updates) => {
       podPrep = ?,
       designPackage = ?,
       printifyPreview = ?,
+      artworkStatus = ?,
+      artworkAssets = ?,
       updatedAt = ?
     WHERE id = ?
   `).run(
@@ -275,6 +302,8 @@ const updateProduct = (id, updates) => {
     serializeJson(podPrep),
     serializeJson(designPackage),
     serializeJson(printifyPreview),
+    artworkStatus,
+    serializeJson(artworkAssets),
     updatedProduct.updatedAt,
     id
   );

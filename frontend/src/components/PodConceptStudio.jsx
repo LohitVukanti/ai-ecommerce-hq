@@ -10,7 +10,8 @@ import {
   generatePodListing,
   generatePodPrep,
   generateDesignPackage,
-  generatePrintifyPreview
+  generatePrintifyPreview,
+  prepareArtwork
 } from "../services/api";
 
 const SectionHeader = ({ title, icon }) => (
@@ -65,6 +66,8 @@ const PodConceptStudio = ({ product, onProductChange }) => {
   const podPrep = product.podPrep;
   const designPackage = product.designPackage;
   const printifyPreview = product.printifyPreview;
+  const artworkAssets = product.artworkAssets;
+  const artworkStatus = product.artworkStatus || "not_prepared";
 
   const canDesignPackage = Boolean(
     product.selectedConceptId &&
@@ -91,6 +94,20 @@ const PodConceptStudio = ({ product, onProductChange }) => {
       : !(listing && listing.etsyTitle)
         ? "Generate the listing first — its title, tags, and description fill the Printify payload."
         : null;
+
+  // Artwork Generation Prep needs concept + POD prep. Listing /
+  // design package / Printify preview enrich the brief when present
+  // but aren't strictly required.
+  const canArtwork = Boolean(
+    product.selectedConceptId &&
+    podPrep &&
+    podPrep.id
+  );
+  const artworkReason = !product.selectedConceptId
+    ? "Select a concept first."
+    : !(podPrep && podPrep.id)
+      ? "Generate POD Prep first — it provides print placement, color, and area for the artwork brief."
+      : null;
 
   // Inline reason explaining why Design Package is disabled (instead of a hidden tooltip)
   const designPackageReason = !product.selectedConceptId
@@ -997,6 +1014,316 @@ const PodConceptStudio = ({ product, onProductChange }) => {
             </div>
           )}
         </div>
+
+        {/* ---- Artwork Generation Prep (no image APIs) ---- */}
+        <div
+          style={{
+            borderTop: "1px solid var(--border)",
+            paddingTop: "18px",
+            marginTop: "16px"
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              marginBottom: "10px",
+              flexWrap: "wrap"
+            }}
+          >
+            <span style={{ fontSize: "22px" }}>🖼</span>
+            <div>
+              <div
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 800,
+                  fontSize: "14px",
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  color: "var(--accent)"
+                }}
+              >
+                Artwork generation prep
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
+                Builds a paste-ready artwork brief, negative prompt, canvas spec, and print-file checklist.
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              padding: "10px 12px",
+              background: "var(--accent-dim)",
+              border: "1px dashed var(--accent)",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "11px",
+              color: "var(--accent)",
+              lineHeight: 1.55,
+              marginBottom: "12px"
+            }}
+          >
+            <strong style={{ letterSpacing: "0.04em", textTransform: "uppercase" }}>Preparation mode only</strong>
+            {" — "}no image APIs are called yet. Paste the brief into your image-generation tool (DALL·E / SDXL / Ideogram), or upload artwork manually once exported.
+          </div>
+
+          <button
+            type="button"
+            onClick={() => run("artwork", () => prepareArtwork(product.id))}
+            disabled={!!loading || !canArtwork}
+            style={{
+              padding: "10px 18px",
+              background: canArtwork ? "var(--purple)" : "var(--bg-primary)",
+              color: canArtwork ? "#0d1117" : "var(--text-muted)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "13px",
+              fontWeight: 700,
+              marginBottom: "8px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}
+          >
+            {loading === "artwork" ? <span className="spinner" /> : <span>🖼</span>}
+            {loading === "artwork"
+              ? "Preparing…"
+              : artworkAssets
+                ? "Re-Prepare Artwork"
+                : "Prepare Artwork"}
+          </button>
+
+          {artworkReason && (
+            <div
+              style={{
+                fontSize: "11px",
+                color: "var(--text-muted)",
+                marginBottom: "14px",
+                lineHeight: 1.4
+              }}
+            >
+              🔒 {artworkReason}
+            </div>
+          )}
+
+          {artworkAssets && (
+            <div
+              style={{
+                padding: "14px",
+                background: "var(--bg-primary)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                fontSize: "12px",
+                color: "var(--text-secondary)"
+              }}
+            >
+              <div style={{ marginBottom: "10px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--success)",
+                    background: "var(--success-dim)",
+                    border: "1px solid var(--success)",
+                    padding: "2px 8px",
+                    borderRadius: "999px",
+                    fontFamily: "var(--font-display)"
+                  }}
+                >
+                  ✓ {artworkStatus === "prepped" ? "Prepped" : artworkStatus}
+                </span>
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                  Asset id:{" "}
+                  <span style={{ fontFamily: "monospace" }}>{artworkAssets.id?.slice(0, 8)}…</span>
+                  {" · "}Background:{" "}
+                  <strong style={{ color: "var(--text-primary)" }}>
+                    {artworkAssets.transparentBackgroundRequired ? "Transparent" : "Full-bleed"}
+                  </strong>
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "10px",
+                  marginBottom: "14px"
+                }}
+              >
+                <SmallStat label="Canvas" value={artworkAssets.recommendedCanvasSize || "—"} />
+                <SmallStat
+                  label="Transparent BG"
+                  value={artworkAssets.transparentBackgroundRequired ? "Required" : "Not required"}
+                />
+              </div>
+
+              {artworkAssets.styleNotes && (
+                <div style={{ marginBottom: "12px" }}>
+                  <div style={labelStyle}>Style notes</div>
+                  <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
+                    {artworkAssets.styleNotes}
+                  </div>
+                </div>
+              )}
+
+              {artworkAssets.printFileRequirements && (
+                <div style={{ marginBottom: "14px" }}>
+                  <div style={labelStyle}>Print file requirements</div>
+                  <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>
+                    {artworkAssets.printFileRequirements}
+                  </div>
+                </div>
+              )}
+
+              {artworkAssets.artworkPrompt && (
+                <div style={{ marginBottom: "12px" }}>
+                  <div
+                    style={{
+                      ...labelStyle,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "8px"
+                    }}
+                  >
+                    <span>Artwork prompt</span>
+                    <CopyTextButton text={artworkAssets.artworkPrompt} label="Copy prompt" />
+                  </div>
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: "10px",
+                      background: "var(--bg-secondary)",
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      fontSize: "11px",
+                      lineHeight: 1.55,
+                      color: "var(--text-secondary)",
+                      maxHeight: "240px",
+                      overflow: "auto",
+                      whiteSpace: "pre-wrap",
+                      fontFamily: "var(--font-body, inherit)"
+                    }}
+                  >
+                    {artworkAssets.artworkPrompt}
+                  </pre>
+                </div>
+              )}
+
+              {artworkAssets.negativePrompt && (
+                <div style={{ marginBottom: "12px" }}>
+                  <div
+                    style={{
+                      ...labelStyle,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "8px"
+                    }}
+                  >
+                    <span>Negative prompt</span>
+                    <CopyTextButton text={artworkAssets.negativePrompt} label="Copy negatives" />
+                  </div>
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: "10px",
+                      background: "var(--bg-secondary)",
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      fontSize: "11px",
+                      lineHeight: 1.55,
+                      color: "var(--text-secondary)",
+                      maxHeight: "160px",
+                      overflow: "auto",
+                      whiteSpace: "pre-wrap",
+                      fontFamily: "var(--font-body, inherit)"
+                    }}
+                  >
+                    {artworkAssets.negativePrompt}
+                  </pre>
+                </div>
+              )}
+
+              <div style={{ marginBottom: "14px" }}>
+                <CopyTextButton
+                  text={`PROMPT:\n${artworkAssets.artworkPrompt || ""}\n\nNEGATIVE:\n${artworkAssets.negativePrompt || ""}`}
+                  label="Copy combined prompt + negatives"
+                />
+              </div>
+
+              {/* Placeholder for future generated / uploaded artwork */}
+              <div
+                style={{
+                  borderTop: "1px dashed var(--border)",
+                  paddingTop: "12px",
+                  marginTop: "4px"
+                }}
+              >
+                <div style={labelStyle}>Generated images / manual uploads</div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
+                    gap: "8px",
+                    marginTop: "6px"
+                  }}
+                >
+                  {[0, 1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      style={{
+                        aspectRatio: "1 / 1",
+                        background: "var(--bg-secondary)",
+                        border: "1px dashed var(--border)",
+                        borderRadius: "var(--radius-sm)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "var(--text-muted)",
+                        fontSize: "10px",
+                        textAlign: "center",
+                        padding: "8px",
+                        lineHeight: 1.4
+                      }}
+                    >
+                      Empty slot
+                      <br />
+                      (future)
+                    </div>
+                  ))}
+                </div>
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text-muted)",
+                    marginTop: "8px",
+                    lineHeight: 1.5
+                  }}
+                >
+                  Future step — image-generation API output (DALL·E / SDXL / Ideogram) or manual upload
+                  will appear here. Until then, generate art externally with the prompt above and keep
+                  finished PNGs alongside this product.
+                </div>
+              </div>
+
+              <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "12px" }}>
+                Created {new Date(artworkAssets.createdAt).toLocaleString()}
+                {artworkAssets.source?.conceptId && (
+                  <span>
+                    {" · "}concept{" "}
+                    <span style={{ fontFamily: "monospace" }}>
+                      {artworkAssets.source.conceptId.slice(0, 8)}…
+                    </span>
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1099,7 +1426,7 @@ function TextBlock({ title, body }) {
   );
 }
 
-function CopyTextButton({ text }) {
+function CopyTextButton({ text, label }) {
   const [done, setDone] = useState(false);
   const onCopy = async () => {
     try {
@@ -1125,7 +1452,7 @@ function CopyTextButton({ text }) {
         flexShrink: 0
       }}
     >
-      {done ? "Copied" : "Copy"}
+      {done ? "Copied" : (label || "Copy")}
     </button>
   );
 }

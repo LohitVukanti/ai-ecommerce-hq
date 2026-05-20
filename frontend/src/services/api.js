@@ -119,6 +119,16 @@ export const generateDesignPackage = (id) =>
 export const generatePrintifyPreview = (id) =>
   request("POST", `/products/${id}/generate-printify-preview`);
 
+/**
+ * Artwork Generation Prep — pure template / preparation mode.
+ * NOT connected to any image API. Persists `artworkAssets`
+ * + `artworkStatus` on the product. Requires selected concept
+ * + POD prep; listing / design package / Printify preview are
+ * optional but enrich the brief when present.
+ */
+export const prepareArtwork = (id) =>
+  request("POST", `/products/${id}/prepare-artwork`);
+
 // ---- Ideas / research intake API (SQLite-backed on the server) ----
 
 /** Fetch ideas; optional filters match GET /api/ideas query params */
