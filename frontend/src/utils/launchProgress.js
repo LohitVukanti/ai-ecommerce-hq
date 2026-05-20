@@ -31,6 +31,7 @@ export function getLaunchSteps(product = {}) {
   const listing = product.listingData;
   const podPrep = product.podPrep;
   const designPackage = product.designPackage;
+  const printifyPreview = product.printifyPreview;
   const generatedFiles = Array.isArray(product.generatedFiles) ? product.generatedFiles : [];
   const aiData = product.aiData;
   const status = product.status;
@@ -122,6 +123,24 @@ export function getLaunchSteps(product = {}) {
       hint: "Design package needs concept + listing + POD prep as inputs."
     },
     {
+      key: "printifyPreview",
+      label: "Printify draft preview (preview only)",
+      icon: "🖨",
+      optional: true,
+      done: !!(printifyPreview && printifyPreview.id),
+      blockedBy: !selectedConcept
+        ? "select"
+        : !(listing && listing.etsyTitle)
+          ? "listing"
+          : !(podPrep && podPrep.id)
+            ? "podPrep"
+            : null,
+      meta: printifyPreview?.id
+        ? `${printifyPreview.productType || "Printify"} · ${printifyPreview.estimatedMarginPercent ?? "—"}% margin`
+        : null,
+      hint: "Generates a Printify-shaped payload preview. No keys, no live publish."
+    },
+    {
       key: "aiContent",
       label: "AI listing content (Etsy/AI path)",
       icon: "🤖",
@@ -202,6 +221,11 @@ const NEXT_ACTIONS = {
     detail: "Combines listing copy and POD prep into a structured creative brief, ready for image-generation APIs later.",
     tone: "purple"
   },
+  printifyPreview: {
+    label: "Generate the Printify draft preview.",
+    detail: "Builds a Printify-shaped payload (blueprint, provider, variants, print areas) for review. Preview mode only — not sent to Printify.",
+    tone: "accent"
+  },
   aiContent: {
     label: "Run Generate AI Content for market scores + Etsy listing copy.",
     detail: "Fills demand / competition / originality / © risk + Etsy title/tags/description (uses mock data unless OPENAI_API_KEY is set).",
@@ -240,6 +264,7 @@ export function getNextAction(product = {}) {
     "listing",
     "podPrep",
     "designPackage",
+    "printifyPreview",
     "aiContent",
     "approved",
     "etsy"
@@ -262,6 +287,7 @@ export function getNextActionShortLabel(product = {}) {
     case "listing": return "Generate listing";
     case "podPrep": return "Generate POD prep";
     case "designPackage": return "Generate design package";
+    case "printifyPreview": return "Generate Printify preview";
     case "aiContent": return "Generate AI content";
     case "approve": return "Approve listing";
     case "etsy": return "Create Etsy draft";

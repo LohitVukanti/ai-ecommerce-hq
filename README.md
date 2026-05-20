@@ -32,11 +32,54 @@ After you **select a concept**, use **Generate POD Prep** to save a **Printify-o
 
 Once **listing** and **POD prep** exist for the **selected concept**, **Generate Design Package** saves `designPackage` on the product: a **master design prompt**, alternates, **mockup prompts**, **social post concepts**, typography/color/visual direction, print/export guidance, and an **`imageGenerationProviderReady`** flag indicating the payload is shaped for a future image API adapter (DALL·E, SDXL, Ideogram, etc.) — **no image keys or generation calls** in this build. Replace `designPackageService.js` internals when you add real providers; keep the route and SQLite field.
 
+### Printify draft preview (preview mode) (new)
+
+Once a product has a **selected concept + listing + POD prep**, click **Generate Printify Preview** inside the Concept Studio to save a `printifyPreview` object on the product. It builds a Printify-shaped draft *without any network calls or API keys* — useful for sanity-checking what a real publish payload will look like before you wire the integration. The saved preview includes:
+
+- `provider`, `productType`, `recommendedBlueprint` (id + name), `recommendedPrintProvider` (id + name)
+- `suggestedColors`, `suggestedSizes`, `printPlacement`
+- `retailPrice`, `productionCost`, `estimatedProfit`, `estimatedMarginPercent`
+- `designFileRequirements`, `mockupInstructions`
+- `publishReadinessChecklist` (concept selected, listing generated, POD prep, design package, print file ready, mockups uploaded, Printify connected)
+- `apiPayloadPreview` — a real Printify-shaped body (`blueprint_id`, `print_provider_id`, `variants[]`, `print_areas[]`, `metadata`) that mirrors `POST /v1/shops/{shop_id}/products.json`. Placeholder image / variant IDs are clearly marked so a future integration can swap them for real catalog IDs without changing call sites.
+
+> **Preview mode only — not connected to Printify API yet.**
+> No `PRINTIFY_API_KEY` is required. Backend route: `POST /api/products/:id/generate-printify-preview`. Persisted in SQLite as `products.printifyPreview` (new column; auto-migrated by `db.js`). Whenever upstream data changes (concept selection, listing, POD prep, design package), the preview is invalidated automatically to stay consistent.
+
 ### Launch checklist & recommended next action (new)
 
 Every product detail modal now shows a **Product Launch Checklist** at the top: trend/idea source, idea scored, product created, design concepts generated, concept selected, listing generated, POD prep, design package, AI listing content (optional), digital product CSV (optional), approved, Etsy draft (simulated), and a placeholder **Published** step (future Printify/Etsy publish). Each step is marked **done / pending / blocked / optional / future** with a short hint and live progress bar.
 
 A single **Recommended Next Action** card sits above the checklist and tells you the one most useful next step (e.g. *"Select one concept before generating a listing."*, *"Generate POD Prep before Design Package."*, *"Ready for Etsy draft simulation."*). Each **product card** on the dashboard also shows a compact `Next · …` line so you can scan progress at a glance. All progress is **derived from existing fields** — no schema changes, no extra API calls.
+
+### Optional OpenAI text generation (backend-only) (new)
+
+The app **runs perfectly without any AI API key** — every generator (POD concepts, listing copy, design package, opportunity scoring, AI listing content) has a deterministic template fallback that always returns the same JSON shape. When you opt in by setting `OPENAI_API_KEY` on the **backend** environment only, these generators *augment* their output with real model copy:
+
+| Surface | OpenAI augments | Always rule-based / deterministic |
+|---|---|---|
+| `POST /api/products/:id/generate-concepts` | `conceptName`, `slogan`, `aesthetic`, `colorPalette`, `placement`, `apparelType`, `designStyle`, `designNotes`, `mockupPrompt`, `targetCustomer`, `copyrightRisk`, `trendAlignment`, `recommendedStatus` | UUIDs, prices, margin %, timestamps, IP/trademark sanitization |
+| `POST /api/products/:id/generate-listing` | `etsyTitle`, `etsyTags[13]`, `etsyDescription`, `seoKeywords`, `audienceNotes` | Pricing recommendation, `fromConceptId`, timestamps, sanitization |
+| `POST /api/products/:id/generate-design-package` | `masterDesignPrompt`, `alternateDesignPrompts[3]`, `mockupPrompts[3]`, `aestheticPack`, `typographySuggestions`, `colorSystem`, `visualDirection`, `printFileGuidelines`, `exportRecommendations`, `adCreativeIdeas[3]`, `socialMediaConcepts[2]` | UUID, `selectedConceptId`, `imageGenerationProviderReady`, timestamps |
+| `POST /api/ideas/:id/score` | `scoreBreakdown.summary` (rewritten plain-English) + new optional `scoreBreakdown.narrative` | **All six 0–100 sub-scores + overall + decision band stay 100% rule-based** |
+| `POST /api/products/:id/generate-ai` (existing `aiService`) | already supports OpenAI; behavior unchanged | mock fallback unchanged |
+
+**How fallback works.** Every async generator builds its full template result first, then calls the central helper `backend/services/openaiTextService.js`. If `OPENAI_API_KEY` is missing, the helper logs `OPENAI_API_KEY missing, using template generator (...)` and returns immediately so the template result is used. If the OpenAI call fails (network, rate limit, malformed JSON), the helper logs `OpenAI failed, using template fallback (...)` and the template result is used. Any individual missing/invalid field in a successful response is also backfilled from the template. **The persisted JSON shape on the product/idea is therefore always identical.**
+
+**Security model.**
+- OpenAI is **backend-only**. The frontend never sees `OPENAI_API_KEY` and there is **no `VITE_OPENAI_*` variable** anywhere.
+- `OPENAI_API_KEY` belongs in `backend/.env` (gitignored) for local dev and in Render's environment variables for deploys. **Never paste it into `.env.example`** — that file is checked into git.
+- Costs are billed against the **OpenAI API account** that owns the key (separate from any ChatGPT subscription).
+
+**Where to set the key.**
+- **Local backend dev:** edit `backend/.env`:
+  ```
+  OPENAI_API_KEY=sk-...
+  OPENAI_MODEL=gpt-4o-mini
+  ```
+  then `cd backend && npm run dev`.
+- **Render (production):** dashboard → your backend service → **Environment** → add `OPENAI_API_KEY` and (optionally) `OPENAI_MODEL`. Hit **Save changes**; Render redeploys automatically. Vercel (frontend) needs **no changes**.
+- **Verify it's active:** start the backend and trigger any generation. Console logs will say `🤖 Using OpenAI for POD concepts (model gpt-4o-mini)` when active, or `ℹ️ OPENAI_API_KEY missing, using template generator (...)` when not. The frontend behaves identically either way.
 
 ---
 
@@ -53,12 +96,14 @@ ai-ecommerce-hq/
 │   │   ├── ideas.js           ← Ideas intake + scoring + convert
 │   │   └── trends.js          ← Trend Scanner intake + convert-to-idea
 │   ├── services/
+│   │   ├── openaiTextService.js ← Central JSON-mode helper (no-throw; auto-fallback)
 │   │   ├── aiService.js       ← AI content generation (mock or OpenAI)
 │   │   ├── etsyService.js     ← Etsy integration (mock or real)
 │   │   ├── digitalProductService.js
-│   │   ├── opportunityScorer.js ← Rule-based idea scoring (no paid AI)
-│   │   ├── podConceptService.js ← POD concepts + listing + Printify prep (template; API-ready later)
-│   │   └── designPackageService.js ← Design package / mockup / social prompts (template; image-API-ready)
+│   │   ├── opportunityScorer.js ← Rule-based idea scoring + optional OpenAI narrative
+│   │   ├── podConceptService.js ← POD concepts + listing (template + optional OpenAI augmentation)
+│   │   ├── designPackageService.js ← Design package (template + optional OpenAI augmentation)
+│   │   └── printifyPreviewService.js ← Printify draft preview (pure template; preview mode)
 │   └── data/
 │       ├── db.js              ← SQLite (products + ideas + trend_scans)
 │       └── products.sqlite    ← Created automatically (gitignored)

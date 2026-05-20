@@ -23,6 +23,7 @@ db.exec(`
     listingData TEXT,
     podPrep TEXT,
     designPackage TEXT,
+    printifyPreview TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL
   )
@@ -44,6 +45,9 @@ db.exec(`
   }
   if (!cols.includes("designPackage")) {
     db.exec(`ALTER TABLE products ADD COLUMN designPackage TEXT`);
+  }
+  if (!cols.includes("printifyPreview")) {
+    db.exec(`ALTER TABLE products ADD COLUMN printifyPreview TEXT`);
   }
 })();
 
@@ -129,7 +133,8 @@ const rowToProduct = (row) => {
     selectedConceptId: row.selectedConceptId || null,
     listingData: parseJson(row.listingData, null),
     podPrep: parseJson(row.podPrep, null),
-    designPackage: parseJson(row.designPackage, null)
+    designPackage: parseJson(row.designPackage, null),
+    printifyPreview: parseJson(row.printifyPreview, null)
   };
 };
 
@@ -170,17 +175,18 @@ const createProduct = (data) => {
     selectedConceptId: null,
     listingData: null,
     podPrep: null,
-    designPackage: null
+    designPackage: null,
+    printifyPreview: null
   };
 
   db.prepare(`
     INSERT INTO products (
       id, title, description, category, status,
       aiData, etsyDraft, digitalProduct, generatedFiles,
-      generatedConcepts, selectedConceptId, listingData, podPrep, designPackage,
+      generatedConcepts, selectedConceptId, listingData, podPrep, designPackage, printifyPreview,
       createdAt, updatedAt
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     newProduct.id,
     newProduct.title,
@@ -196,6 +202,7 @@ const createProduct = (data) => {
     serializeJson(newProduct.listingData),
     serializeJson(newProduct.podPrep),
     serializeJson(newProduct.designPackage),
+    serializeJson(newProduct.printifyPreview),
     newProduct.createdAt,
     newProduct.updatedAt
   );
@@ -229,6 +236,11 @@ const updateProduct = (id, updates) => {
       ? updatedProduct.designPackage
       : existing.designPackage;
 
+  const printifyPreview =
+    updatedProduct.printifyPreview !== undefined
+      ? updatedProduct.printifyPreview
+      : existing.printifyPreview;
+
   db.prepare(`
     UPDATE products
     SET
@@ -245,6 +257,7 @@ const updateProduct = (id, updates) => {
       listingData = ?,
       podPrep = ?,
       designPackage = ?,
+      printifyPreview = ?,
       updatedAt = ?
     WHERE id = ?
   `).run(
@@ -261,6 +274,7 @@ const updateProduct = (id, updates) => {
     serializeJson(listingData),
     serializeJson(podPrep),
     serializeJson(designPackage),
+    serializeJson(printifyPreview),
     updatedProduct.updatedAt,
     id
   );

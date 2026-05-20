@@ -110,6 +110,15 @@ export const generatePodPrep = (id) =>
 export const generateDesignPackage = (id) =>
   request("POST", `/products/${id}/generate-design-package`);
 
+/**
+ * Printify Draft Preview — pure template / preview mode.
+ * NOT connected to a real Printify API. Persists `printifyPreview`
+ * on the product (selected concept + POD prep + listing required;
+ * designPackage optional).
+ */
+export const generatePrintifyPreview = (id) =>
+  request("POST", `/products/${id}/generate-printify-preview`);
+
 // ---- Ideas / research intake API (SQLite-backed on the server) ----
 
 /** Fetch ideas; optional filters match GET /api/ideas query params */

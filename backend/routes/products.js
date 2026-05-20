@@ -27,10 +27,16 @@ const { createEtsyDraftListing }    = require("../services/etsyService");
 const { generateDigitalProduct }    = require("../services/digitalProductService");
 const {
   generatePodConcepts,
+  generatePodConceptsAsync,
   buildPodListingFromConcept,
+  buildPodListingFromConceptAsync,
   buildPodPrepFromConcept
 } = require("../services/podConceptService");
-const { buildDesignPackage } = require("../services/designPackageService");
+const {
+  buildDesignPackage,
+  buildDesignPackageAsync
+} = require("../services/designPackageService");
+const { buildPrintifyPreview } = require("../services/printifyPreviewService");
 
 // ============================================================
 // GET /api/products
@@ -187,7 +193,7 @@ router.post("/:id/generate-digital-product", async (req, res) => {
 // POST /api/products/:id/generate-concepts
 // POD design concepts (template-based; persists generatedConcepts)
 // ============================================================
-router.post("/:id/generate-concepts", (req, res) => {
+router.post("/:id/generate-concepts", async (req, res) => {
   try {
     const product = getProductById(req.params.id);
 
@@ -195,13 +201,14 @@ router.post("/:id/generate-concepts", (req, res) => {
       return res.status(404).json({ success: false, message: "Product not found" });
     }
 
-    const { concepts } = generatePodConcepts(product);
+    const { concepts } = await generatePodConceptsAsync(product);
     const updatedProduct = updateProduct(req.params.id, {
       generatedConcepts: concepts,
       selectedConceptId: null,
       listingData: null,
       podPrep: null,
-      designPackage: null
+      designPackage: null,
+      printifyPreview: null
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -243,16 +250,19 @@ router.post("/:id/select-concept", (req, res) => {
 
     let podPrep = product.podPrep;
     let designPackage = product.designPackage;
+    let printifyPreview = product.printifyPreview;
     if (product.podPrep && product.podPrep.selectedConceptId !== conceptId) {
       podPrep = null;
       designPackage = null;
+      printifyPreview = null;
     }
 
     const updatedProduct = updateProduct(req.params.id, {
       generatedConcepts: next,
       selectedConceptId: conceptId,
       podPrep,
-      designPackage
+      designPackage,
+      printifyPreview
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -288,17 +298,20 @@ router.post("/:id/reject-concept", (req, res) => {
     let selectedConceptId = product.selectedConceptId;
     let podPrep = product.podPrep;
     let designPackage = product.designPackage;
+    let printifyPreview = product.printifyPreview;
     if (selectedConceptId === conceptId) {
       selectedConceptId = null;
       podPrep = null;
       designPackage = null;
+      printifyPreview = null;
     }
 
     const updatedProduct = updateProduct(req.params.id, {
       generatedConcepts: next,
       selectedConceptId,
       podPrep,
-      designPackage
+      designPackage,
+      printifyPreview
     });
 
     res.json({ success: true, data: updatedProduct });
@@ -313,7 +326,7 @@ router.post("/:id/reject-concept", (req, res) => {
 // Optional body: { conceptId } — defaults to selectedConceptId
 // Persists listingData from the chosen concept (separate from aiData)
 // ============================================================
-router.post("/:id/generate-listing", (req, res) => {
+router.post("/:id/generate-listing", async (req, res) => {
   try {
     const product = getProductById(req.params.id);
 
@@ -337,8 +350,12 @@ router.post("/:id/generate-listing", (req, res) => {
       return res.status(400).json({ success: false, message: "Cannot build listing from a rejected concept" });
     }
 
-    const listingData = buildPodListingFromConcept(product, concept);
-    const updatedProduct = updateProduct(req.params.id, { listingData, designPackage: null });
+    const listingData = await buildPodListingFromConceptAsync(product, concept);
+    const updatedProduct = updateProduct(req.params.id, {
+      listingData,
+      designPackage: null,
+      printifyPreview: null
+    });
 
     res.json({ success: true, data: updatedProduct });
   } catch (error) {
@@ -387,7 +404,11 @@ router.post("/:id/generate-pod-prep", (req, res) => {
     }
 
     const podPrep = buildPodPrepFromConcept(product, concept);
-    const updatedProduct = updateProduct(req.params.id, { podPrep, designPackage: null });
+    const updatedProduct = updateProduct(req.params.id, {
+      podPrep,
+      designPackage: null,
+      printifyPreview: null
+    });
 
     res.json({ success: true, data: updatedProduct });
   } catch (error) {
@@ -400,7 +421,7 @@ router.post("/:id/generate-pod-prep", (req, res) => {
 // POST /api/products/:id/generate-design-package
 // Template prompts + social + export spec — requires concept + listing + POD prep
 // ============================================================
-router.post("/:id/generate-design-package", (req, res) => {
+router.post("/:id/generate-design-package", async (req, res) => {
   try {
     const product = getProductById(req.params.id);
 
@@ -459,13 +480,100 @@ router.post("/:id/generate-design-package", (req, res) => {
       });
     }
 
-    const designPackage = buildDesignPackage(product, concept, listingData, podPrep);
-    const updatedProduct = updateProduct(req.params.id, { designPackage });
+    const designPackage = await buildDesignPackageAsync(product, concept, listingData, podPrep);
+    const updatedProduct = updateProduct(req.params.id, { designPackage, printifyPreview: null });
 
     res.json({ success: true, data: updatedProduct });
   } catch (error) {
     console.error("Error generating design package:", error);
     res.status(500).json({ success: false, message: "Failed to generate design package" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/generate-printify-preview
+// Pure template (no Printify API, no OpenAI). Requires selected
+// concept + POD prep + listing. designPackage is optional but
+// improves the payload preview.
+// ============================================================
+router.post("/:id/generate-printify-preview", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const selectedId = product.selectedConceptId;
+    if (!selectedId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Select a concept first. Then generate POD listing and POD prep before previewing the Printify draft."
+      });
+    }
+
+    const list = Array.isArray(product.generatedConcepts) ? product.generatedConcepts : [];
+    const concept = list.find((c) => c.id === selectedId);
+
+    if (!concept || concept.conceptStatus === "rejected") {
+      return res.status(400).json({
+        success: false,
+        message: "Selected concept is missing or rejected. Select a valid concept and try again."
+      });
+    }
+
+    const podPrep = product.podPrep;
+    if (!podPrep || typeof podPrep !== "object" || !podPrep.id) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Generate POD prep first — the Printify preview uses its cost, retail, placement, and risk fields."
+      });
+    }
+
+    if (podPrep.selectedConceptId && podPrep.selectedConceptId !== selectedId) {
+      return res.status(400).json({
+        success: false,
+        message: "POD prep is for a different concept. Regenerate POD prep for your current selection."
+      });
+    }
+
+    const listingData = product.listingData;
+    if (!listingData || typeof listingData !== "object" || !listingData.etsyTitle) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Generate POD listing first — the Printify payload uses listing title, tags, and description."
+      });
+    }
+
+    if (listingData.fromConceptId && listingData.fromConceptId !== selectedId) {
+      return res.status(400).json({
+        success: false,
+        message: "Listing was built for a different concept. Regenerate listing for the selected concept."
+      });
+    }
+
+    const designPackage =
+      product.designPackage &&
+      product.designPackage.selectedConceptId === selectedId
+        ? product.designPackage
+        : null;
+
+    const printifyPreview = buildPrintifyPreview(
+      product,
+      concept,
+      podPrep,
+      listingData,
+      designPackage
+    );
+    const updatedProduct = updateProduct(req.params.id, { printifyPreview });
+
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error generating Printify preview:", error);
+    res.status(500).json({ success: false, message: "Failed to generate Printify preview" });
   }
 });
 

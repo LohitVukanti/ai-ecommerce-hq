@@ -16,6 +16,7 @@ const {
   scoreIdea,
   convertIdeaToProduct
 } = require("../data/db");
+const { enhanceScoreNarrative } = require("../services/opportunityScorer");
 
 // ============================================================
 // GET /api/ideas
@@ -123,15 +124,43 @@ router.delete("/:id", (req, res) => {
 
 // ============================================================
 // POST /api/ideas/:id/score
-// Rule-based opportunity scoring (no external AI).
+// Rule-based opportunity scoring (numeric scores are deterministic).
+// When OPENAI_API_KEY is set, the narrative summary is rewritten by
+// the model — numeric scores never change.
 // ============================================================
-router.post("/:id/score", (req, res) => {
+router.post("/:id/score", async (req, res) => {
   try {
-    const updated = scoreIdea(req.params.id);
-    if (!updated) {
+    const scored = scoreIdea(req.params.id);
+    if (!scored) {
       return res.status(404).json({ success: false, message: "Idea not found" });
     }
-    res.json({ success: true, data: updated });
+
+    // Optional: rewrite the narrative without touching numeric scores.
+    let breakdown = scored.scoreBreakdown;
+    try {
+      const enhanced = await enhanceScoreNarrative(scored, {
+        marginScore: scored.scoreBreakdown?.marginScore,
+        demandScore: scored.scoreBreakdown?.demandScore,
+        trendScore: scored.scoreBreakdown?.trendScore,
+        competitionScore: scored.scoreBreakdown?.competitionScore,
+        fulfillmentDifficultyScore: scored.scoreBreakdown?.fulfillmentDifficultyScore,
+        copyrightRiskScore: scored.scoreBreakdown?.copyrightRiskScore,
+        overallOpportunityScore: scored.opportunityScore,
+        scoreBreakdown: scored.scoreBreakdown
+      });
+      if (enhanced && enhanced.scoreBreakdown) {
+        breakdown = enhanced.scoreBreakdown;
+      }
+    } catch (e) {
+      console.error("Narrative enhancement failed (using rule-based summary):", e.message);
+    }
+
+    if (breakdown !== scored.scoreBreakdown) {
+      const persisted = updateIdea(scored.id, { scoreBreakdown: breakdown });
+      return res.json({ success: true, data: persisted });
+    }
+
+    res.json({ success: true, data: scored });
   } catch (error) {
     console.error("Error scoring idea:", error);
     res.status(500).json({ success: false, message: "Failed to score idea" });

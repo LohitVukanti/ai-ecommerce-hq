@@ -9,7 +9,8 @@ import {
   rejectProductConcept,
   generatePodListing,
   generatePodPrep,
-  generateDesignPackage
+  generateDesignPackage,
+  generatePrintifyPreview
 } from "../services/api";
 
 const SectionHeader = ({ title, icon }) => (
@@ -63,6 +64,7 @@ const PodConceptStudio = ({ product, onProductChange }) => {
   const listing = product.listingData;
   const podPrep = product.podPrep;
   const designPackage = product.designPackage;
+  const printifyPreview = product.printifyPreview;
 
   const canDesignPackage = Boolean(
     product.selectedConceptId &&
@@ -71,6 +73,24 @@ const PodConceptStudio = ({ product, onProductChange }) => {
     podPrep &&
     podPrep.id
   );
+
+  // Printify preview shares prereqs with the design package except the
+  // design package itself is optional. designPackage simply enriches the
+  // payload preview when present.
+  const canPrintifyPreview = Boolean(
+    product.selectedConceptId &&
+    listing &&
+    listing.etsyTitle &&
+    podPrep &&
+    podPrep.id
+  );
+  const printifyPreviewReason = !product.selectedConceptId
+    ? "Select a concept first."
+    : !(podPrep && podPrep.id)
+      ? "Generate POD Prep first — it provides cost / placement / margin inputs."
+      : !(listing && listing.etsyTitle)
+        ? "Generate the listing first — its title, tags, and description fill the Printify payload."
+        : null;
 
   // Inline reason explaining why Design Package is disabled (instead of a hidden tooltip)
   const designPackageReason = !product.selectedConceptId
@@ -704,10 +724,320 @@ const PodConceptStudio = ({ product, onProductChange }) => {
             </div>
           )}
         </div>
+
+        {/* ---- Printify Draft Preview (preview mode — no API keys) ---- */}
+        <div
+          style={{
+            borderTop: "1px solid var(--border)",
+            paddingTop: "18px",
+            marginTop: "16px"
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              marginBottom: "10px",
+              flexWrap: "wrap"
+            }}
+          >
+            <span style={{ fontSize: "22px" }}>🖨</span>
+            <div>
+              <div
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 800,
+                  fontSize: "14px",
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  color: "var(--accent)"
+                }}
+              >
+                Printify draft preview
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
+                Builds a Printify-shaped payload — blueprint, provider, variants, print areas, file specs.
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              padding: "10px 12px",
+              background: "var(--accent-dim)",
+              border: "1px dashed var(--accent)",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "11px",
+              color: "var(--accent)",
+              lineHeight: 1.55,
+              marginBottom: "12px"
+            }}
+          >
+            <strong style={{ letterSpacing: "0.04em", textTransform: "uppercase" }}>Preview mode only</strong>
+            {" — "}not connected to Printify API yet. Inspect the payload here; later wiring will POST it for real.
+          </div>
+
+          <button
+            type="button"
+            onClick={() => run("printifyPrev", () => generatePrintifyPreview(product.id))}
+            disabled={!!loading || !canPrintifyPreview}
+            style={{
+              padding: "10px 18px",
+              background: canPrintifyPreview ? "var(--accent)" : "var(--bg-primary)",
+              color: canPrintifyPreview ? "#0d1117" : "var(--text-muted)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "13px",
+              fontWeight: 700,
+              marginBottom: "8px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px"
+            }}
+          >
+            {loading === "printifyPrev" ? <span className="spinner" /> : <span>🖨</span>}
+            {loading === "printifyPrev"
+              ? "Generating…"
+              : printifyPreview
+                ? "Re-Generate Printify Preview"
+                : "Generate Printify Preview"}
+          </button>
+
+          {printifyPreviewReason && (
+            <div
+              style={{
+                fontSize: "11px",
+                color: "var(--text-muted)",
+                marginBottom: "14px",
+                lineHeight: 1.4
+              }}
+            >
+              🔒 {printifyPreviewReason}
+            </div>
+          )}
+
+          {printifyPreview && (
+            <div
+              style={{
+                padding: "14px",
+                background: "var(--bg-primary)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                fontSize: "12px",
+                color: "var(--text-secondary)"
+              }}
+            >
+              <div style={{ marginBottom: "10px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 800,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    color: "var(--success)",
+                    background: "var(--success-dim)",
+                    border: "1px solid var(--success)",
+                    padding: "2px 8px",
+                    borderRadius: "999px",
+                    fontFamily: "var(--font-display)"
+                  }}
+                >
+                  ✓ Saved to product
+                </span>
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                  Provider: <strong style={{ color: "var(--text-primary)" }}>{printifyPreview.provider}</strong>
+                  {" · "}Preview id:{" "}
+                  <span style={{ fontFamily: "monospace" }}>{printifyPreview.id?.slice(0, 8)}…</span>
+                  {" · "}Type: <strong style={{ color: "var(--text-primary)" }}>{printifyPreview.productType}</strong>
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                  gap: "10px",
+                  marginBottom: "14px"
+                }}
+              >
+                <SmallStat label="Retail" value={`$${printifyPreview.retailPrice}`} />
+                <SmallStat label="Production" value={`$${printifyPreview.productionCost}`} />
+                <SmallStat label="Profit" value={`$${printifyPreview.estimatedProfit}`} />
+                <SmallStat label="Margin" value={`${printifyPreview.estimatedMarginPercent}%`} />
+              </div>
+
+              {[
+                ["Recommended blueprint", printifyPreview.recommendedBlueprint
+                  ? `${printifyPreview.recommendedBlueprint.name} (id ${printifyPreview.recommendedBlueprint.blueprint_id}, ${printifyPreview.recommendedBlueprint.source})`
+                  : "—"],
+                ["Recommended print provider", printifyPreview.recommendedPrintProvider
+                  ? `${printifyPreview.recommendedPrintProvider.name} (id ${printifyPreview.recommendedPrintProvider.print_provider_id}, ${printifyPreview.recommendedPrintProvider.source})`
+                  : "—"],
+                ["Print placement", printifyPreview.printPlacement],
+                ["Suggested colors", (printifyPreview.suggestedColors || []).join(" · ")],
+                ["Suggested sizes", (printifyPreview.suggestedSizes || []).join(" · ")],
+                ["Design file requirements", printifyPreview.designFileRequirements],
+                ["Mockup instructions", printifyPreview.mockupInstructions]
+              ].map(([label, val]) => (
+                <div key={label} style={{ marginBottom: "12px" }}>
+                  <div style={labelStyle}>{label}</div>
+                  <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.55 }}>{val || "—"}</div>
+                </div>
+              ))}
+
+              {Array.isArray(printifyPreview.publishReadinessChecklist) && (
+                <div style={{ marginBottom: "14px" }}>
+                  <div style={labelStyle}>Publish readiness checklist</div>
+                  <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                    {printifyPreview.publishReadinessChecklist.map((item) => (
+                      <li
+                        key={item.key}
+                        style={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: "8px",
+                          padding: "6px 0",
+                          borderBottom: "1px dashed var(--border)"
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: "16px",
+                            height: "16px",
+                            borderRadius: "50%",
+                            background: item.done ? "var(--success)" : "transparent",
+                            border: item.done ? "none" : "1.5px solid var(--text-muted)",
+                            color: "#0d1117",
+                            fontSize: "10px",
+                            fontWeight: 800,
+                            flexShrink: 0,
+                            marginTop: "2px"
+                          }}
+                        >
+                          {item.done ? "✓" : ""}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              fontWeight: 700,
+                              color: item.done ? "var(--text-secondary)" : "var(--text-primary)"
+                            }}
+                          >
+                            {item.label}
+                          </div>
+                          {item.hint && (
+                            <div
+                              style={{
+                                fontSize: "11px",
+                                color: "var(--text-muted)",
+                                marginTop: "2px",
+                                lineHeight: 1.45
+                              }}
+                            >
+                              {item.hint}
+                            </div>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {printifyPreview.apiPayloadPreview && (
+                <div style={{ marginBottom: "8px" }}>
+                  <div
+                    style={{
+                      ...labelStyle,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "8px"
+                    }}
+                  >
+                    <span>Printify API payload preview</span>
+                    <CopyTextButton text={JSON.stringify(printifyPreview.apiPayloadPreview, null, 2)} />
+                  </div>
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: "10px",
+                      background: "var(--bg-secondary)",
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      fontSize: "11px",
+                      lineHeight: 1.5,
+                      color: "var(--text-secondary)",
+                      maxHeight: "240px",
+                      overflow: "auto",
+                      fontFamily: "monospace"
+                    }}
+                  >
+                    {JSON.stringify(printifyPreview.apiPayloadPreview, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "8px" }}>
+                Created {new Date(printifyPreview.createdAt).toLocaleString()}
+                {printifyPreview.sourceConceptId && (
+                  <span>
+                    {" · "}concept{" "}
+                    <span style={{ fontFamily: "monospace" }}>
+                      {printifyPreview.sourceConceptId.slice(0, 8)}…
+                    </span>
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 };
+
+function SmallStat({ label, value }) {
+  return (
+    <div
+      style={{
+        padding: "10px",
+        background: "var(--bg-secondary)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)"
+      }}
+    >
+      <div
+        style={{
+          fontSize: "10px",
+          fontFamily: "var(--font-display)",
+          fontWeight: 600,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: "var(--text-muted)",
+          marginBottom: "2px"
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: "var(--font-display)",
+          fontSize: "16px",
+          fontWeight: 800,
+          color: "var(--text-primary)"
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
 
 const labelStyle = {
   fontSize: "10px",

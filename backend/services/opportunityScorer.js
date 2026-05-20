@@ -142,4 +142,99 @@ const computeOpportunityScores = (idea) => {
   };
 };
 
-module.exports = { computeOpportunityScores };
+// ============================================================
+// Optional OpenAI narrative augmentation
+// ============================================================
+// Numeric scores stay 100% rule-based (deterministic). When the
+// backend has OPENAI_API_KEY set, we ask the model only for a
+// short plain-English explanation that gets merged into
+// scoreBreakdown.summary + an optional scoreBreakdown.narrative.
+// Falls back silently to the rule-based summary on any failure.
+// ============================================================
+
+const { generateJsonWithOpenAI } = require("./openaiTextService");
+
+const SCORE_NARRATIVE_SYSTEM = `You are an analyst explaining a rule-based product-opportunity score.
+You MUST respond with a single valid JSON object only (no markdown fences, no commentary).
+Do NOT contradict the numeric scores you are given. Use them as the ground truth.
+Keep the tone factual and concise.`;
+
+function buildScoreNarrativeUserPrompt(idea, scored) {
+  const safeIdea = {
+    title: idea.title || "",
+    niche: idea.niche || "",
+    productType: idea.productType || "",
+    targetCustomer: idea.targetCustomer || "",
+    estimatedSellingPrice: idea.estimatedSellingPrice ?? null,
+    estimatedProductionCost: idea.estimatedProductionCost ?? null,
+    competitionLevel: idea.competitionLevel || "",
+    demandEvidence: (idea.demandEvidence || "").slice(0, 600),
+    trendEvidence: (idea.trendEvidence || "").slice(0, 600),
+    fulfillmentDifficulty: idea.fulfillmentDifficulty || "",
+    copyrightRisk: idea.copyrightRisk || "",
+    notes: (idea.notes || "").slice(0, 600)
+  };
+
+  return `Given the following idea + numeric sub-scores, write a short JSON object with EXACTLY:
+{
+  "summary": string (1 sentence, 18-32 words, factual),
+  "narrative": string (2-3 sentences explaining strongest + weakest dimensions, no new numbers)
+}
+
+Sub-scores (0-100, higher = better opportunity for that dimension):
+- marginScore: ${scored.marginScore}
+- demandScore: ${scored.demandScore}
+- trendScore: ${scored.trendScore}
+- competitionScore: ${scored.competitionScore}
+- fulfillmentDifficultyScore: ${scored.fulfillmentDifficultyScore}
+- copyrightRiskScore: ${scored.copyrightRiskScore}
+- overall: ${scored.overallOpportunityScore}
+- decisionBand: ${JSON.stringify(scored.scoreBreakdown.recommendationLabel)}
+
+Idea data:
+${JSON.stringify(safeIdea, null, 2)}`;
+}
+
+/**
+ * Async, non-throwing. Always returns the original `scored` object,
+ * with `scoreBreakdown.summary` (and optionally `scoreBreakdown.narrative`)
+ * replaced when OpenAI succeeded.
+ *
+ * @param {Record<string, unknown>} idea  — same idea you passed to computeOpportunityScores
+ * @param {ReturnType<typeof computeOpportunityScores>} scored
+ * @returns {Promise<ReturnType<typeof computeOpportunityScores>>}
+ */
+async function enhanceScoreNarrative(idea, scored) {
+  if (!scored || !scored.scoreBreakdown) return scored;
+
+  const result = await generateJsonWithOpenAI({
+    system: SCORE_NARRATIVE_SYSTEM,
+    user: buildScoreNarrativeUserPrompt(idea, scored),
+    traceLabel: "opportunity score narrative",
+    temperature: 0.4,
+    maxTokens: 400
+  });
+
+  if (!result.ok) return scored;
+
+  const raw = result.data || {};
+  const summary =
+    typeof raw.summary === "string" && raw.summary.trim()
+      ? raw.summary.trim().slice(0, 400)
+      : scored.scoreBreakdown.summary;
+  const narrative =
+    typeof raw.narrative === "string" && raw.narrative.trim()
+      ? raw.narrative.trim().slice(0, 1200)
+      : null;
+
+  return {
+    ...scored,
+    scoreBreakdown: {
+      ...scored.scoreBreakdown,
+      summary,
+      ...(narrative ? { narrative } : {})
+    }
+  };
+}
+
+module.exports = { computeOpportunityScores, enhanceScoreNarrative };

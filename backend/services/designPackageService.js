@@ -8,6 +8,7 @@
 
 const { v4: uuidv4 } = require("uuid");
 const { sanitizeCopy, inferPodProductShape } = require("./podConceptService");
+const { generateJsonWithOpenAI } = require("./openaiTextService");
 
 const CATALOG_SHAPE_HINT = {
   "T-shirt": "Emphasize chest print legibility at distance",
@@ -167,6 +168,176 @@ function buildDesignPackage(product, concept, listingData, podPrep) {
   };
 }
 
+// ============================================================
+// Optional OpenAI augmentation
+// ============================================================
+// Always builds the full template package first; if OpenAI is
+// configured and returns valid JSON, the prompt + creative copy
+// fields are replaced. Identity/timestamp/flag fields stay
+// authoritative from this service.
+// ============================================================
+
+const DESIGN_PKG_SYSTEM = `You are an art director for an Etsy / POD apparel brand.
+You MUST respond with a single valid JSON object only (no markdown fences, no commentary).
+No third-party trademarks, no celebrity likenesses, no real luxury or sports brands.
+Prompts must be ready for a downstream image-generation API (DALL·E, SDXL, Ideogram).`;
+
+function buildDesignPackageUserPrompt(product, concept, listingData, podPrep, shape) {
+  return `Produce a design package for the POD product below.
+Return ONE JSON object with EXACTLY these keys:
+{
+  "masterDesignPrompt": string,
+  "alternateDesignPrompts": string[3],
+  "mockupPrompts": string[3],
+  "aestheticPack": string,
+  "typographySuggestions": string,
+  "colorSystem": string,
+  "visualDirection": string,
+  "printFileGuidelines": string,
+  "exportRecommendations": string,
+  "adCreativeIdeas": string[3],
+  "socialMediaConcepts": [
+    {
+      "platform": string,
+      "hook": string,
+      "caption": string,
+      "hashtags": string[]
+    },
+    {
+      "platform": string,
+      "hook": string,
+      "caption": string,
+      "hashtags": string[]
+    }
+  ]
+}
+
+Garment / blank shape: ${JSON.stringify(shape)}
+Concept:
+- conceptName: ${JSON.stringify(concept.conceptName)}
+- slogan: ${JSON.stringify(concept.slogan)}
+- aesthetic: ${JSON.stringify(concept.aesthetic)}
+- designStyle: ${JSON.stringify(concept.designStyle || "")}
+- placement: ${JSON.stringify(concept.placement)}
+- colorPalette: ${JSON.stringify(concept.colorPalette)}
+- apparelType: ${JSON.stringify(concept.apparelType)}
+
+POD prep:
+- recommendedProductType: ${JSON.stringify(podPrep.recommendedProductType || "")}
+- apparelColor: ${JSON.stringify(podPrep.apparelColor || "")}
+- printPlacement: ${JSON.stringify(podPrep.printPlacement || "")}
+- printArea: ${JSON.stringify(podPrep.printArea || "")}
+- estimatedMarginPercent: ${podPrep.estimatedMarginPercent ?? ""}
+
+Listing:
+- etsyTitle: ${JSON.stringify(listingData.etsyTitle || "")}
+- audienceNotes: ${JSON.stringify(listingData.audienceNotes || "")}
+
+Constraints:
+- Each prompt 60-220 words, suitable for an image-generation API.
+- Keep transparent-background guidance for apparel art.
+- Mention 300 DPI / sRGB / safe-margin notes in printFileGuidelines.`;
+}
+
+function pickArrayOfStrings(val, expectedLen, fallback) {
+  if (!Array.isArray(val)) return fallback;
+  const cleaned = val
+    .map((s) => (typeof s === "string" ? sanitizeCopy(s) : ""))
+    .filter(Boolean);
+  if (cleaned.length === 0) return fallback;
+  // Pad with template entries if we got fewer than expected
+  const out = cleaned.slice(0, expectedLen);
+  while (out.length < expectedLen && fallback[out.length]) {
+    out.push(fallback[out.length]);
+  }
+  return out;
+}
+
+function pickSocialConcepts(val, fallback) {
+  if (!Array.isArray(val) || val.length === 0) return fallback;
+  return val.slice(0, 2).map((sm, i) => {
+    const fb = fallback[i] || fallback[0];
+    return {
+      id: fb.id, // preserve our IDs for stability
+      platform:
+        typeof sm?.platform === "string" && sm.platform.trim()
+          ? sanitizeCopy(sm.platform).slice(0, 60)
+          : fb.platform,
+      hook:
+        typeof sm?.hook === "string" && sm.hook.trim()
+          ? sanitizeCopy(sm.hook).slice(0, 240)
+          : fb.hook,
+      caption:
+        typeof sm?.caption === "string" && sm.caption.trim()
+          ? sanitizeCopy(sm.caption).slice(0, 600)
+          : fb.caption,
+      hashtags:
+        Array.isArray(sm?.hashtags) && sm.hashtags.length
+          ? sm.hashtags
+              .map((h) => sanitizeCopy(String(h || "")))
+              .filter(Boolean)
+              .slice(0, 10)
+          : fb.hashtags
+    };
+  });
+}
+
+async function buildDesignPackageAsync(product, concept, listingData, podPrep) {
+  const template = buildDesignPackage(product, concept, listingData, podPrep);
+  const shape = inferPodProductShape(concept, product);
+
+  const result = await generateJsonWithOpenAI({
+    system: DESIGN_PKG_SYSTEM,
+    user: buildDesignPackageUserPrompt(product, concept, listingData, podPrep, shape),
+    traceLabel: "design package",
+    temperature: 0.7
+  });
+
+  if (!result.ok) return template;
+  const raw = result.data || {};
+
+  return {
+    ...template, // preserves id, selectedConceptId, imageGenerationProviderReady, createdAt
+    masterDesignPrompt:
+      typeof raw.masterDesignPrompt === "string" && raw.masterDesignPrompt.trim()
+        ? sanitizeCopy(raw.masterDesignPrompt).slice(0, 4000)
+        : template.masterDesignPrompt,
+    alternateDesignPrompts: pickArrayOfStrings(
+      raw.alternateDesignPrompts,
+      3,
+      template.alternateDesignPrompts
+    ),
+    mockupPrompts: pickArrayOfStrings(raw.mockupPrompts, 3, template.mockupPrompts),
+    aestheticPack:
+      typeof raw.aestheticPack === "string" && raw.aestheticPack.trim()
+        ? sanitizeCopy(raw.aestheticPack).slice(0, 2000)
+        : template.aestheticPack,
+    typographySuggestions:
+      typeof raw.typographySuggestions === "string" && raw.typographySuggestions.trim()
+        ? sanitizeCopy(raw.typographySuggestions).slice(0, 1500)
+        : template.typographySuggestions,
+    colorSystem:
+      typeof raw.colorSystem === "string" && raw.colorSystem.trim()
+        ? sanitizeCopy(raw.colorSystem).slice(0, 1500)
+        : template.colorSystem,
+    visualDirection:
+      typeof raw.visualDirection === "string" && raw.visualDirection.trim()
+        ? sanitizeCopy(raw.visualDirection).slice(0, 2000)
+        : template.visualDirection,
+    printFileGuidelines:
+      typeof raw.printFileGuidelines === "string" && raw.printFileGuidelines.trim()
+        ? sanitizeCopy(raw.printFileGuidelines).slice(0, 2000)
+        : template.printFileGuidelines,
+    exportRecommendations:
+      typeof raw.exportRecommendations === "string" && raw.exportRecommendations.trim()
+        ? sanitizeCopy(raw.exportRecommendations).slice(0, 2000)
+        : template.exportRecommendations,
+    adCreativeIdeas: pickArrayOfStrings(raw.adCreativeIdeas, 3, template.adCreativeIdeas),
+    socialMediaConcepts: pickSocialConcepts(raw.socialMediaConcepts, template.socialMediaConcepts)
+  };
+}
+
 module.exports = {
-  buildDesignPackage
+  buildDesignPackage,
+  buildDesignPackageAsync
 };

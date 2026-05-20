@@ -7,6 +7,7 @@
 // ============================================================
 
 const { v4: uuidv4 } = require("uuid");
+const { generateJsonWithOpenAI } = require("./openaiTextService");
 
 const AESTHETICS = [
   "old money",
@@ -467,9 +468,246 @@ function buildPodPrepFromConcept(product, concept) {
   };
 }
 
+// ============================================================
+// Optional OpenAI augmentation (NO-OP fallback to template)
+// ============================================================
+// Both async helpers ALWAYS return the full template result first,
+// then merge OpenAI fields on top when available. The frontend
+// shape is therefore guaranteed regardless of API state.
+// ============================================================
+
+const ALLOWED_RECOMMENDED_STATUS = new Set([
+  "strong_candidate",
+  "alternate",
+  "experimental"
+]);
+
+const ALLOWED_RISK = new Set(["Low", "Moderate", "High"]);
+const ALLOWED_TREND = new Set(["High", "Moderate", "Niche"]);
+
+function pickStr(val, fallback, maxLen = 400) {
+  if (typeof val !== "string") return fallback;
+  const t = sanitizeCopy(val);
+  if (!t) return fallback;
+  return t.length > maxLen ? t.slice(0, maxLen - 1) + "…" : t;
+}
+
+function mergeOpenAIConcept(templateConcept, raw) {
+  if (!raw || typeof raw !== "object") return templateConcept;
+
+  const merged = {
+    ...templateConcept,
+    conceptName: pickStr(raw.conceptName, templateConcept.conceptName, 80),
+    slogan: pickStr(raw.slogan, templateConcept.slogan, 120),
+    aesthetic:
+      typeof raw.aesthetic === "string" && AESTHETICS.includes(raw.aesthetic.trim().toLowerCase())
+        ? raw.aesthetic.trim().toLowerCase()
+        : templateConcept.aesthetic,
+    targetCustomer: pickStr(raw.targetCustomer, templateConcept.targetCustomer, 240),
+    designStyle: pickStr(raw.designStyle, templateConcept.designStyle, 240),
+    placement: pickStr(raw.placement, templateConcept.placement, 200),
+    colorPalette: pickStr(raw.colorPalette, templateConcept.colorPalette, 160),
+    apparelType: pickStr(raw.apparelType, templateConcept.apparelType, 80),
+    designNotes: pickStr(raw.designNotes, templateConcept.designNotes, 1200),
+    mockupPrompt: pickStr(raw.mockupPrompt, templateConcept.mockupPrompt, 1500),
+    copyrightRisk: ALLOWED_RISK.has(raw.copyrightRisk)
+      ? raw.copyrightRisk
+      : templateConcept.copyrightRisk,
+    trendAlignment: ALLOWED_TREND.has(raw.trendAlignment)
+      ? raw.trendAlignment
+      : templateConcept.trendAlignment,
+    recommendedStatus: ALLOWED_RECOMMENDED_STATUS.has(raw.recommendedStatus)
+      ? raw.recommendedStatus
+      : templateConcept.recommendedStatus
+  };
+
+  // Re-derive margin string in case sell/cost were left to template
+  merged.estimatedMargin = marginPct(merged.estimatedSellingPrice, merged.estimatedProductionCost);
+  return merged;
+}
+
+const POD_CONCEPT_SYSTEM = `You are a senior print-on-demand creative director focused on Etsy + Shopify apparel.
+You MUST respond with a single valid JSON object only (no markdown fences, no commentary).
+Originality and trademark safety are non-negotiable: no real luxury brands, sports leagues, universities, celebrities, or band names. No fictional-but-trademarked phrases. Use generic typography and abstract motifs.
+Aesthetic must be one of: ${AESTHETICS.map((a) => `"${a}"`).join(", ")}.
+copyrightRisk must be exactly one of "Low" | "Moderate" | "High".
+trendAlignment must be exactly one of "High" | "Moderate" | "Niche".
+recommendedStatus must be exactly one of "strong_candidate" | "alternate" | "experimental".`;
+
+function buildPodConceptUserPrompt(product, ctx, count) {
+  return `Generate ${count} distinct POD apparel concepts for the product below.
+Return ONE JSON object with this exact shape:
+{
+  "concepts": [
+    {
+      "conceptName": string,
+      "slogan": string,
+      "aesthetic": string (one of the allowed list),
+      "targetCustomer": string,
+      "designStyle": string,
+      "placement": string,
+      "colorPalette": string,
+      "apparelType": string,
+      "designNotes": string,
+      "mockupPrompt": string,
+      "copyrightRisk": "Low" | "Moderate" | "High",
+      "trendAlignment": "High" | "Moderate" | "Niche",
+      "recommendedStatus": "strong_candidate" | "alternate" | "experimental"
+    }
+  ]
+}
+
+Hard rules:
+- Slogans must be original — no taglines or band lyrics from real brands or artists.
+- conceptName should pair an invented club/society name with the aesthetic.
+- placement must describe a print location and approximate size.
+- mockupPrompt is for an image-generation model; describe a flat-lay or model shot, palette, and the original wordmark (no real logos).
+
+Product:
+- title: ${JSON.stringify(product.title || "")}
+- category: ${JSON.stringify(product.category || "")}
+- niche: ${JSON.stringify(ctx.niche || "")}
+- targetCustomer: ${JSON.stringify(ctx.targetCustomer || "")}
+- opportunityScore: ${ctx.opportunityScore == null ? "null" : ctx.opportunityScore}
+- ideaNotes: ${JSON.stringify((ctx.ideaNotes || "").slice(0, 600))}`;
+}
+
+/**
+ * Generate POD concepts. Uses OpenAI when OPENAI_API_KEY is set; otherwise
+ * (or on any failure) falls back to the template generator. The persisted
+ * concept shape is identical in both paths.
+ */
+async function generatePodConceptsAsync(product) {
+  const template = generatePodConcepts(product);
+  const ctx = buildContext(product);
+  const count = template.concepts.length;
+
+  const result = await generateJsonWithOpenAI({
+    system: POD_CONCEPT_SYSTEM,
+    user: buildPodConceptUserPrompt(product, ctx, count),
+    traceLabel: "POD concepts",
+    temperature: 0.75
+  });
+
+  if (!result.ok) return template;
+
+  const rawConcepts = Array.isArray(result.data?.concepts) ? result.data.concepts : [];
+  if (rawConcepts.length === 0) return template;
+
+  const merged = template.concepts.map((tpl, i) => mergeOpenAIConcept(tpl, rawConcepts[i]));
+  return { concepts: merged };
+}
+
+// ---- Listing (Etsy-style) async augmentation -----------------------------
+
+const ETSY_TAG_MAX_LEN = 20;
+
+function normalizeTagList(tags) {
+  if (!Array.isArray(tags)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const t of tags) {
+    const c = sanitizeCopy(String(t || ""))
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, ETSY_TAG_MAX_LEN);
+    if (c && c.length >= 2 && !seen.has(c)) {
+      seen.add(c);
+      out.push(c);
+    }
+    if (out.length >= 13) break;
+  }
+  return out;
+}
+
+const POD_LISTING_SYSTEM = `You are an Etsy SEO + copywriting specialist for POD apparel.
+You MUST respond with a single valid JSON object only (no markdown fences, no commentary).
+No third-party trademarks: no luxury, sports league, university, celebrity, character, or band names.
+etsyTags must be 13 lowercase tags (1-20 chars each, letters/numbers/spaces).`;
+
+function buildPodListingUserPrompt(product, concept) {
+  return `Write the Etsy listing fields for this concept-driven POD apparel product.
+Return ONE JSON object with EXACTLY these keys:
+{
+  "etsyTitle": string (max 140 chars),
+  "etsyTags": string[] (exactly 13),
+  "etsyDescription": string (line breaks allowed, ~120-220 words),
+  "seoKeywords": string[] (5-8 short search phrases),
+  "audienceNotes": string (1-2 sentences on primary audience + posture)
+}
+
+Concept:
+- conceptName: ${JSON.stringify(concept.conceptName)}
+- slogan: ${JSON.stringify(concept.slogan)}
+- aesthetic: ${JSON.stringify(concept.aesthetic)}
+- apparelType: ${JSON.stringify(concept.apparelType)}
+- placement: ${JSON.stringify(concept.placement)}
+- colorPalette: ${JSON.stringify(concept.colorPalette)}
+- targetCustomer: ${JSON.stringify(concept.targetCustomer || "")}
+- estimatedSellingPrice: ${concept.estimatedSellingPrice ?? ""}
+- estimatedMargin: ${JSON.stringify(concept.estimatedMargin || "")}
+
+Product context:
+- title: ${JSON.stringify(product.title || "")}
+- category: ${JSON.stringify(product.category || "")}`;
+}
+
+async function buildPodListingFromConceptAsync(product, concept) {
+  if (!concept) return null;
+  const template = buildPodListingFromConcept(product, concept);
+
+  const result = await generateJsonWithOpenAI({
+    system: POD_LISTING_SYSTEM,
+    user: buildPodListingUserPrompt(product, concept),
+    traceLabel: "POD listing",
+    temperature: 0.6
+  });
+
+  if (!result.ok) return template;
+  const raw = result.data || {};
+
+  const merged = { ...template };
+
+  if (typeof raw.etsyTitle === "string" && raw.etsyTitle.trim()) {
+    merged.etsyTitle = sanitizeCopy(raw.etsyTitle).slice(0, 140);
+  }
+
+  const aiTags = normalizeTagList(raw.etsyTags);
+  if (aiTags.length >= 8) {
+    // Backfill from template if model returned <13 valid tags
+    const filler = template.etsyTags.filter((t) => !aiTags.includes(t));
+    merged.etsyTags = [...aiTags, ...filler].slice(0, 13);
+    while (merged.etsyTags.length < 13 && filler.length) {
+      merged.etsyTags.push(filler.pop());
+    }
+  }
+
+  if (typeof raw.etsyDescription === "string" && raw.etsyDescription.trim()) {
+    merged.etsyDescription = sanitizeCopy(raw.etsyDescription).slice(0, 4000);
+  }
+
+  if (Array.isArray(raw.seoKeywords) && raw.seoKeywords.length) {
+    const cleaned = raw.seoKeywords
+      .map((k) => sanitizeCopy(String(k || "")))
+      .filter(Boolean)
+      .slice(0, 8);
+    if (cleaned.length) merged.seoKeywords = cleaned;
+  }
+
+  if (typeof raw.audienceNotes === "string" && raw.audienceNotes.trim()) {
+    merged.audienceNotes = sanitizeCopy(raw.audienceNotes).slice(0, 600);
+  }
+
+  return merged;
+}
+
 module.exports = {
   generatePodConcepts,
+  generatePodConceptsAsync,
   buildPodListingFromConcept,
+  buildPodListingFromConceptAsync,
   buildPodPrepFromConcept,
   inferPodProductShape,
   sanitizeCopy,
