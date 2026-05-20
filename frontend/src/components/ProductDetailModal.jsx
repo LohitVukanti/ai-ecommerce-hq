@@ -19,6 +19,7 @@ import {
   approveProduct,
   rejectProduct,
   createEtsyDraft,
+  createRealEtsyDraft,
   deleteProduct,
   generateDigitalProduct,
   resolveDownloadUrl
@@ -140,7 +141,9 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
   const handleApprove         = () => runAction("approve", approveProduct,          "Listing approved — Etsy draft is now available.");
   const handleReject          = () => runAction("reject",  rejectProduct,           "Product marked as rejected.");
   const handleEtsyDraft       = () => runAction("etsy",    createEtsyDraft,         "Etsy draft (simulated) created.");
-  // NEW: triggers template-based CSV generation — no AI API used
+  // Real Etsy draft (live mode if ENABLE_REAL_ETSY=true + OAuth done; mock fallback otherwise)
+  const handleEtsyDraftLive   = () => runAction("etsylive", createRealEtsyDraft,    "Etsy draft created (mode reported by backend).");
+  // Triggers template-based CSV generation — no AI API used
   const handleGenerateDigital = () => runAction("digital", generateDigitalProduct,  "Digital product CSV generated.");
 
   const handleDelete = async () => {
@@ -263,8 +266,17 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
               onClick={handleEtsyDraft}
               loading={loadingAction === "etsy"}
               disabled={!!loadingAction}
-              icon="🛍️" label="Create Etsy Draft"
+              icon="🛍️" label="Create Etsy Draft (Sim.)"
               variant="primary"
+            />
+          )}
+          {canEtsyDraft && (
+            <ActionButton
+              onClick={handleEtsyDraftLive}
+              loading={loadingAction === "etsylive"}
+              disabled={!!loadingAction}
+              icon="🛒" label="Create Etsy Draft (Live or Mock)"
+              variant="secondary"
             />
           )}
           {canReject && (

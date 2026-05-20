@@ -17,6 +17,8 @@ import {
   rejectArtworkAsset,
   setPrimaryArtworkAsset,
   deleteArtworkAsset,
+  generateArtworkImage,
+  createPrintifyProduct,
   resolveDownloadUrl
 } from "../services/api";
 
@@ -1019,6 +1021,12 @@ const PodConceptStudio = ({ product, onProductChange }) => {
                   </span>
                 )}
               </div>
+
+              {/* ---- Live / mock: create real Printify product DRAFT ---- */}
+              <CreatePrintifyProductPanel
+                product={product}
+                onProductChange={onProductChange}
+              />
             </div>
           )}
         </div>
@@ -1303,6 +1311,7 @@ const PodConceptStudio = ({ product, onProductChange }) => {
               if (!window.confirm("Delete this artwork asset? The file will be removed from disk.")) return;
               return run(`artwork-delete-${assetId}`, () => deleteArtworkAsset(product.id, assetId));
             }}
+            onGenerateImage={() => run("artwork-imggen", () => generateArtworkImage(product.id))}
           />
         </div>
       </div>
@@ -1325,9 +1334,14 @@ function ArtworkAssetManager({
   onApprove,
   onReject,
   onSetPrimary,
-  onDelete
+  onDelete,
+  onGenerateImage
 }) {
   const uploading = loading === "artwork-upload";
+  const generating = loading === "artwork-imggen";
+  // The image-gen route requires a prep brief — same constraint as the backend route.
+  const hasPrepBrief =
+    product && product.artworkAssets && Boolean(product.artworkAssets.artworkPrompt);
   const handleFileChange = async (e) => {
     const f = e.target.files && e.target.files[0];
     e.target.value = ""; // allow re-uploading the same name
@@ -1429,8 +1443,38 @@ function ArtworkAssetManager({
           {uploading ? <span className="spinner" /> : <span>📤</span>}
           {uploading ? "Uploading…" : "Upload artwork"}
         </button>
+        <button
+          type="button"
+          onClick={() => onGenerateImage && onGenerateImage()}
+          disabled={!!loading || !hasPrepBrief}
+          title={
+            hasPrepBrief
+              ? "Generate an artwork image from the prepared brief (mock SVG unless ENABLE_REAL_IMAGE_GENERATION=true)"
+              : "Run Prepare Artwork first — the image generator uses the prompt + negative prompt + canvas + transparency from the brief."
+          }
+          style={{
+            padding: "8px 14px",
+            background: !hasPrepBrief
+              ? "var(--bg-tertiary)"
+              : generating
+                ? "var(--bg-primary)"
+                : "var(--bg-secondary)",
+            color: !hasPrepBrief ? "var(--text-muted)" : "var(--text-primary)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            fontSize: "12px",
+            fontWeight: 700,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            cursor: !hasPrepBrief || generating ? "default" : "pointer"
+          }}
+        >
+          {generating ? <span className="spinner" /> : <span>🎨</span>}
+          {generating ? "Generating…" : "Generate artwork image"}
+        </button>
         <span style={{ fontSize: "11px", color: "var(--text-muted)", lineHeight: 1.4 }}>
-          PNG / JPEG / WEBP / GIF / SVG · max 20 MB · stored locally (no image API)
+          PNG / JPEG / WEBP / GIF / SVG · max 20 MB · mock SVG is generated when image generation is off
         </span>
       </div>
 
@@ -1840,6 +1884,158 @@ function CopyRow({ text, label = "Copy block" }) {
       >
         {done ? "Copied" : label}
       </button>
+    </div>
+  );
+}
+
+// ============================================================
+// CreatePrintifyProductPanel — calls /create-printify-product
+// Renders below the Printify Preview JSON block. In preview/mock
+// mode the button always works and stores a stub. In live mode
+// the backend additionally checks that a primary artwork item
+// is approved.
+// ============================================================
+function CreatePrintifyProductPanel({ product, onProductChange }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [lastResult, setLastResult] = useState(null);
+
+  const handleCreate = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const updated = await createPrintifyProduct(product.id);
+      onProductChange(updated);
+      setLastResult(updated.printifyProduct || null);
+    } catch (e) {
+      setErr(e.message || "Failed to create Printify product");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stored = product && product.printifyProduct;
+
+  return (
+    <div
+      style={{
+        borderTop: "1px dashed var(--border)",
+        marginTop: "14px",
+        paddingTop: "14px"
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "10px",
+          flexWrap: "wrap"
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 800,
+              fontSize: "12px",
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+              color: "var(--accent)"
+            }}
+          >
+            Create Printify product
+          </div>
+          <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px", lineHeight: 1.5 }}>
+            Creates a real Printify DRAFT (or a deterministic preview stub when live mode is off).
+            Never auto-publishes. Live mode also requires an APPROVED primary artwork item.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleCreate}
+          disabled={busy}
+          style={{
+            padding: "8px 14px",
+            background: busy ? "var(--bg-primary)" : "var(--bg-secondary)",
+            color: "var(--text-primary)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            fontSize: "12px",
+            fontWeight: 700,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            cursor: busy ? "default" : "pointer"
+          }}
+        >
+          {busy ? <span className="spinner" /> : <span>🛍️</span>}
+          {busy ? "Creating…" : stored ? "Re-create Printify product" : "Create Printify product"}
+        </button>
+      </div>
+
+      {err && (
+        <div
+          style={{
+            marginTop: "8px",
+            padding: "8px 10px",
+            fontSize: "12px",
+            background: "rgba(229, 83, 75, 0.08)",
+            border: "1px solid rgba(229, 83, 75, 0.3)",
+            color: "#f85149",
+            borderRadius: "var(--radius-sm)"
+          }}
+        >
+          {err}
+        </div>
+      )}
+
+      {(lastResult || stored) && (
+        <div
+          style={{
+            marginTop: "10px",
+            padding: "10px 12px",
+            background: "var(--bg-primary)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            fontSize: "12px",
+            color: "var(--text-secondary)",
+            lineHeight: 1.5
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
+            <span>
+              <strong style={{ color: "var(--text-primary)" }}>
+                {(lastResult || stored).isMock ? "Preview stub" : "Live draft"}
+              </strong>
+              {" · "}status: {(lastResult || stored).status}
+              {" · "}id:{" "}
+              <code style={{ fontFamily: "monospace", color: "var(--text-primary)" }}>
+                {String((lastResult || stored).productId || "—").slice(0, 32)}
+              </code>
+            </span>
+            {(lastResult || stored).url && (
+              <a
+                href={(lastResult || stored).url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "var(--accent)", fontSize: "12px", fontWeight: 700 }}
+              >
+                Open in Printify →
+              </a>
+            )}
+          </div>
+          {(lastResult || stored).rawResponseSummary && (
+            <div style={{ marginTop: "6px", fontSize: "11px", color: "var(--text-muted)" }}>
+              variants: {(lastResult || stored).rawResponseSummary.variant_count || 0}
+              {" · "}
+              blueprint: {(lastResult || stored).rawResponseSummary.blueprint_id || "—"}
+              {" · "}
+              provider: {(lastResult || stored).rawResponseSummary.print_provider_id || "—"}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

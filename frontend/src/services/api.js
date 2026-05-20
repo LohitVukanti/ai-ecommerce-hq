@@ -218,3 +218,61 @@ export const deleteTrendScan = (id) => request("DELETE", `/trends/${id}`);
 /** Returns { idea, trendScan } from the backend */
 export const convertTrendScanToIdea = (id) =>
   request("POST", `/trends/${id}/convert-to-idea`);
+
+// ============================================================
+// Integration layer — OpenAI / image gen / Printify / Etsy
+// ============================================================
+// All integrations have a mock or preview fallback on the backend
+// so these calls work even when no API keys are set. The status
+// endpoint never returns secret values.
+
+/**
+ * Returns the health report for every integration: configured /
+ * not configured, mode (mock | preview | live), missing env vars,
+ * setup instructions, and what each integration powers.
+ */
+export const fetchIntegrationStatus = () =>
+  request("GET", "/integrations/status");
+
+/** Etsy-specific status (mirrors integration report; convenient for the OAuth callback page). */
+export const fetchEtsyStatus = () => request("GET", "/etsy/status");
+
+/**
+ * Returns the absolute URL that the user's browser should be sent
+ * to start the Etsy OAuth (PKCE) flow. The backend issues a 302 to
+ * Etsy from there. We DO NOT call this with fetch — it's a redirect.
+ */
+export function getEtsyAuthStartUrl() {
+  const raw = (import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/$/, "");
+  if (raw && raw !== "/api") {
+    const origin = raw.replace(/\/api\/?$/i, "").replace(/\/$/, "");
+    return `${origin}/api/etsy/auth/start`;
+  }
+  return "/api/etsy/auth/start";
+}
+
+/**
+ * Generate an artwork image for a product. In mock mode (default)
+ * writes a deterministic SVG placeholder; in live mode calls the
+ * configured image-generation provider. Either way the result is
+ * added to product.artworkAssets.items[] as type="generated".
+ *
+ * Requires that artwork prep has been run first.
+ */
+export const generateArtworkImage = (id) =>
+  request("POST", `/products/${id}/generate-artwork-image`);
+
+/**
+ * Create a Printify product DRAFT (never published). In preview/mock
+ * mode stores a deterministic stub; in live mode uploads the approved
+ * primary artwork and POSTs to Printify.
+ */
+export const createPrintifyProduct = (id) =>
+  request("POST", `/products/${id}/create-printify-product`);
+
+/**
+ * Create a real Etsy DRAFT listing (never auto-published). Falls back
+ * to the existing simulator when live mode is off or OAuth is missing.
+ */
+export const createRealEtsyDraft = (id) =>
+  request("POST", `/products/${id}/create-real-etsy-draft`);

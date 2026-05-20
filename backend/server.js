@@ -16,6 +16,8 @@ const path    = require("path");
 const productRoutes = require("./routes/products");
 const ideaRoutes = require("./routes/ideas");
 const trendRoutes = require("./routes/trends");
+const integrationsRoutes = require("./routes/integrations");
+const etsyRoutes = require("./routes/etsy");
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -110,6 +112,10 @@ app.use("/api/products", productRoutes);
 app.use("/api/ideas", ideaRoutes);
 // Trend Scanner — manual/assisted trend intake (converts to ideas)
 app.use("/api/trends", trendRoutes);
+// Integrations health endpoint — public, no secret values returned.
+app.use("/api/integrations", integrationsRoutes);
+// Etsy OAuth v3 (PKCE) — status, auth start, callback.
+app.use("/api/etsy", etsyRoutes);
 
 // ---- Health Check ----
 // Useful to quickly verify the server is running
@@ -124,6 +130,8 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`   Products API:    http://localhost:${PORT}/api/products`);
   console.log(`   Ideas API:       http://localhost:${PORT}/api/ideas`);
   console.log(`   Trends API:      http://localhost:${PORT}/api/trends`);
+  console.log(`   Integrations:    http://localhost:${PORT}/api/integrations/status`);
+  console.log(`   Etsy OAuth:      http://localhost:${PORT}/api/etsy/auth/start`);
   console.log(`   Downloads:       http://localhost:${PORT}/downloads/`);
   console.log(`   Artwork:         http://localhost:${PORT}/artwork/\n`);
 });

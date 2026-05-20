@@ -221,6 +221,19 @@ export function getLaunchSteps(product = {}) {
       hint: "Approve the listing to enable the simulated Etsy draft."
     },
     {
+      key: "printifyProduct",
+      label: "Printify product created (preview or live)",
+      icon: "🛍️",
+      optional: true,
+      done: !!(product && product.printifyProduct && product.printifyProduct.productId),
+      meta:
+        product && product.printifyProduct
+          ? (product.printifyProduct.isMock ? "preview stub" : `live draft (${product.printifyProduct.status})`)
+          : null,
+      hint:
+        "Click 'Create Printify product' under the Printify Preview block. Live mode requires PRINTIFY_API_TOKEN + PRINTIFY_SHOP_ID + ENABLE_REAL_PRINTIFY=true and an approved primary artwork."
+    },
+    {
       key: "etsy",
       label: "Etsy draft created (simulated)",
       icon: "🛍",
@@ -307,6 +320,12 @@ const NEXT_ACTIONS = {
     label: "This product is rejected.",
     detail: "Use 'Reject' control or delete it; or revisit the listing if rejection was a mistake.",
     tone: "danger"
+  },
+  printifyProduct: {
+    label: "Create the Printify product (preview or live).",
+    detail:
+      "Optional. In preview mode it stores a deterministic stub; with PRINTIFY_API_TOKEN + PRINTIFY_SHOP_ID + ENABLE_REAL_PRINTIFY=true (and an approved primary artwork) it creates a real Printify DRAFT.",
+    tone: "accent"
   },
   published: {
     label: "Future step: connect Printify / Etsy publish API.",

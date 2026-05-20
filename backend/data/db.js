@@ -26,6 +26,7 @@ db.exec(`
     printifyPreview TEXT,
     artworkStatus TEXT,
     artworkAssets TEXT,
+    printifyProduct TEXT,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL
   )
@@ -56,6 +57,9 @@ db.exec(`
   }
   if (!cols.includes("artworkAssets")) {
     db.exec(`ALTER TABLE products ADD COLUMN artworkAssets TEXT`);
+  }
+  if (!cols.includes("printifyProduct")) {
+    db.exec(`ALTER TABLE products ADD COLUMN printifyProduct TEXT`);
   }
 })();
 
@@ -144,7 +148,8 @@ const rowToProduct = (row) => {
     designPackage: parseJson(row.designPackage, null),
     printifyPreview: parseJson(row.printifyPreview, null),
     artworkStatus: row.artworkStatus || "not_prepared",
-    artworkAssets: parseJson(row.artworkAssets, null)
+    artworkAssets: parseJson(row.artworkAssets, null),
+    printifyProduct: parseJson(row.printifyProduct, null)
   };
 };
 
@@ -188,7 +193,8 @@ const createProduct = (data) => {
     designPackage: null,
     printifyPreview: null,
     artworkStatus: "not_prepared",
-    artworkAssets: null
+    artworkAssets: null,
+    printifyProduct: null
   };
 
   db.prepare(`
@@ -196,10 +202,10 @@ const createProduct = (data) => {
       id, title, description, category, status,
       aiData, etsyDraft, digitalProduct, generatedFiles,
       generatedConcepts, selectedConceptId, listingData, podPrep, designPackage, printifyPreview,
-      artworkStatus, artworkAssets,
+      artworkStatus, artworkAssets, printifyProduct,
       createdAt, updatedAt
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     newProduct.id,
     newProduct.title,
@@ -218,6 +224,7 @@ const createProduct = (data) => {
     serializeJson(newProduct.printifyPreview),
     newProduct.artworkStatus,
     serializeJson(newProduct.artworkAssets),
+    serializeJson(newProduct.printifyProduct),
     newProduct.createdAt,
     newProduct.updatedAt
   );
@@ -266,6 +273,11 @@ const updateProduct = (id, updates) => {
       ? updatedProduct.artworkAssets
       : existing.artworkAssets;
 
+  const printifyProduct =
+    updatedProduct.printifyProduct !== undefined
+      ? updatedProduct.printifyProduct
+      : existing.printifyProduct;
+
   db.prepare(`
     UPDATE products
     SET
@@ -285,6 +297,7 @@ const updateProduct = (id, updates) => {
       printifyPreview = ?,
       artworkStatus = ?,
       artworkAssets = ?,
+      printifyProduct = ?,
       updatedAt = ?
     WHERE id = ?
   `).run(
@@ -304,6 +317,7 @@ const updateProduct = (id, updates) => {
     serializeJson(printifyPreview),
     artworkStatus,
     serializeJson(artworkAssets),
+    serializeJson(printifyProduct),
     updatedProduct.updatedAt,
     id
   );

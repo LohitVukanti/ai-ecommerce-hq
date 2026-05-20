@@ -151,6 +151,44 @@ The app **runs perfectly without any AI API key** — every generator (POD conce
 - **Render (production):** dashboard → your backend service → **Environment** → add `OPENAI_API_KEY` and (optionally) `OPENAI_MODEL`. Hit **Save changes**; Render redeploys automatically. Vercel (frontend) needs **no changes**.
 - **Verify it's active:** start the backend and trigger any generation. Console logs will say `🤖 Using OpenAI for POD concepts (model gpt-4o-mini)` when active, or `ℹ️ OPENAI_API_KEY missing, using template generator (...)` when not. The frontend behaves identically either way.
 
+### Integration layer — go-live API support (new)
+
+Every external integration in the app now lives behind a small wrapper service under `backend/services/integrations/` and is gated by an explicit `ENABLE_REAL_*` env flag. With **zero keys set**, every flow continues to work exactly as before — the integration layer just adds mock / preview behaviors that mirror the live response shapes. Flip a flag and add credentials to turn a single integration live without touching the rest.
+
+| Provider | Flag | Required env | Mock behavior | Live behavior |
+|---|---|---|---|---|
+| **OpenAI text** | `ENABLE_REAL_OPENAI` (informational only) | `OPENAI_API_KEY`, `OPENAI_MODEL` | Deterministic template generators (see table above) | Existing behavior — augments concepts / listing / design package / score narrative |
+| **Image generation** | `ENABLE_REAL_IMAGE_GENERATION` | `OPENAI_API_KEY`, `OPENAI_IMAGE_MODEL` (default `gpt-image-1`) | Writes a deterministic SVG placeholder keyed by prompt hash | Calls OpenAI Images and saves the returned PNG to `backend/generated-artwork/` |
+| **Printify** | `ENABLE_REAL_PRINTIFY` | `PRINTIFY_API_TOKEN`, `PRINTIFY_SHOP_ID` | Returns a `preview-mock-<uuid>` stub echoing `printifyPreview.apiPayloadPreview` | Uploads approved primary artwork via `POST /v1/uploads/images.json`, substitutes the image id into the payload, POSTs `POST /v1/shops/{shop_id}/products.json`. **Draft only — never auto-publishes.** |
+| **Etsy** | `ENABLE_REAL_ETSY` | `ETSY_CLIENT_ID`, `ETSY_CLIENT_SECRET`, `ETSY_REDIRECT_URI`, plus OAuth flow | Delegates to the existing `etsyService.js` simulator | Refresh-aware Etsy API v3 call: `POST /v3/application/shops/{shop_id}/listings` with `state="draft"`. **Draft only — never auto-publishes.** |
+
+**New endpoints (all additive — existing routes are untouched):**
+
+| Verb | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/integrations/status` | Aggregate health for every provider. Never returns secret values — only mode (`mock` / `preview` / `live`), `configured` boolean, names of missing env vars, what each integration powers, and setup hints. |
+| `GET` | `/api/etsy/status` | Same shape, scoped to Etsy. Includes `needsOAuth` so the frontend can show a "Connect Etsy" button. |
+| `GET` | `/api/etsy/auth/start` | 302 → Etsy OAuth consent screen (PKCE). Generates a random `state` + code verifier kept in memory until the callback. |
+| `GET` | `/api/etsy/auth/callback` | Exchanges the OAuth code for tokens, persists them to `backend/data/etsy_tokens.json` (gitignored), then redirects back to the frontend with `?etsy_oauth=success` or `?etsy_oauth=error&reason=…`. |
+| `POST` | `/api/products/:id/generate-artwork-image` | Generates an artwork image from `artworkAssets.artworkPrompt` and adds it to `artworkAssets.items[]` as `type: "generated"`. Mock writes an SVG; live calls OpenAI Images. |
+| `POST` | `/api/products/:id/create-printify-product` | Creates a Printify product **DRAFT** (or preview-mock stub). Requires `printifyPreview`; live mode additionally requires an **approved primary artwork** item. Stores result on `products.printifyProduct` (new SQLite column, auto-migrated). |
+| `POST` | `/api/products/:id/create-real-etsy-draft` | Creates an Etsy **DRAFT** listing (or falls back to the existing simulator). Requires `aiData`; reuses `etsyDraft` column. |
+
+**Live-mode safety.** Every live action is gated server-side on three independent conditions: the matching `ENABLE_REAL_*=true` flag, the relevant credentials, and the product-level prerequisites (e.g. Printify needs `printifyPreview.apiPayloadPreview` + approved primary artwork). If any condition fails, the route either runs the safe mock variant or returns a clear `400` explaining what's missing. **Printify and Etsy never auto-publish — both create drafts only.**
+
+**Frontend Integrations page.** A new `Integrations` route shows one card per provider with: configured / not-configured / OAuth-required pill, mode pill (`mock` / `preview` / `live`), missing env vars (names only), a "Powers …" blurb, setup instructions, a docs link, and a warning banner whenever live mode is off. The Etsy card surfaces a **Connect Etsy** button that kicks off the OAuth flow. The integrations summary banner also appears at the top.
+
+**Where to set keys.**
+- **Local:** edit `backend/.env` (gitignored). Start with `cp backend/.env.example backend/.env` — every key is listed with inline comments. Flip only the ones you want to enable.
+- **Render:** dashboard → backend service → **Environment** → add each key and the matching `ENABLE_REAL_*` flag. Hit **Save changes**; Render redeploys.
+- **Vercel:** frontend needs **no integration keys** — only `VITE_API_BASE_URL` and `VITE_APP_PASSWORD` as before. Secrets stay strictly server-side.
+
+**Security model.** No secret ever crosses the network to the browser. `GET /api/integrations/status` returns the NAMES of missing env vars but never their values. Etsy tokens are stored on the backend filesystem (`backend/data/etsy_tokens.json`, gitignored) and accessed via `getStoredTokens()` only inside the backend process. OAuth state + PKCE code verifiers live in memory for 10 minutes per connection attempt.
+
+**Costs.** Image generation and OpenAI text are billed to your OpenAI API account (separate from a ChatGPT subscription). Printify and Etsy API calls themselves are free, but creating drafts in your store is a real action against your account.
+
+**Verifying mode.** Open `http://localhost:3001/api/integrations/status` or visit the Integrations page. Backend logs explicitly say `🎨 Image gen: calling gpt-image-1 …`, `🛍️ Printify: creating product DRAFT in shop … `, or `🛒 Etsy: creating DRAFT listing in shop …` when a real call is being made, vs `🎨 Generating artwork image (mock)` etc. when running mock-mode.
+
 ---
 
 ## Project Structure
@@ -176,10 +214,19 @@ ai-ecommerce-hq/
 │   │   ├── printifyPreviewService.js ← Printify draft preview (pure template; preview mode)
 │   │   ├── artworkPrepService.js  ← Artwork generation prep (pure template; preparation mode, no image APIs)
 │   │   └── artworkAssetService.js ← Artwork asset list helpers (add / approve / reject / primary / remove / derive status)
-│   ├── generated-artwork/     ← Uploaded artwork assets (gitignored; folder kept via .gitkeep)
+│   ├── services/integrations/ ← External-API wrappers (mock-safe by default; live mode opt-in)
+│   │   ├── openaiIntegrationService.js     ← Thin wrapper around openaiTextService + health helper
+│   │   ├── imageGenerationService.js       ← OpenAI Images (live) or SVG placeholder (mock)
+│   │   ├── printifyIntegrationService.js   ← Printify upload + draft create (mock stub otherwise)
+│   │   ├── etsyIntegrationService.js       ← Etsy OAuth v3 PKCE + draft create (delegates to simulator otherwise)
+│   │   └── integrationHealthService.js     ← Aggregates /api/integrations/status (no secret values)
+│   ├── routes/integrations.js ← GET /api/integrations/status
+│   ├── routes/etsy.js         ← /api/etsy/status, /auth/start, /auth/callback
+│   ├── generated-artwork/     ← Uploaded / generated artwork assets (gitignored; folder kept via .gitkeep)
 │   └── data/
 │       ├── db.js              ← SQLite (products + ideas + trend_scans)
-│       └── products.sqlite    ← Created automatically (gitignored)
+│       ├── products.sqlite    ← Created automatically (gitignored)
+│       └── etsy_tokens.json   ← OAuth access + refresh tokens (gitignored; created after /api/etsy/auth/callback)
 │
 └── frontend/                  ← React + Vite app
     ├── .env.example           ← VITE_API_BASE_URL, VITE_APP_PASSWORD (optional)
@@ -197,7 +244,8 @@ ai-ecommerce-hq/
         ├── pages/
         │   ├── Dashboard.jsx     ← Product pipeline dashboard
         │   ├── IdeasResearch.jsx ← Ideas intake + scoring UI
-        │   └── TrendScanner.jsx  ← Manual/assisted trend intake UI
+        │   ├── TrendScanner.jsx  ← Manual/assisted trend intake UI
+        │   └── Integrations.jsx  ← External-API status + Connect Etsy button (new)
         └── components/
             ├── PrivateAccessGate.jsx ← Optional VITE_APP_PASSWORD gate
             ├── AddProductModal.jsx

@@ -25,7 +25,7 @@ const STATUSES = [
   { value: "rejected",           label: "Rejected",         icon: "❌" }
 ];
 
-const Dashboard = ({ onOpenIdeas, onOpenTrends }) => {
+const Dashboard = ({ onOpenIdeas, onOpenTrends, onOpenIntegrations }) => {
   // ---- State ----
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -147,6 +147,23 @@ const Dashboard = ({ onOpenIdeas, onOpenTrends }) => {
               }}
             >
               Ideas & Research
+            </button>
+          )}
+          {typeof onOpenIntegrations === "function" && (
+            <button
+              type="button"
+              onClick={onOpenIntegrations}
+              style={{
+                background: "var(--bg-tertiary)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border)",
+                padding: "8px 14px",
+                borderRadius: "var(--radius-sm)",
+                fontSize: "13px",
+                fontWeight: 700
+              }}
+            >
+              Integrations
             </button>
           )}
           <button

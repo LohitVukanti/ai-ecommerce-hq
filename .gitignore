@@ -19,3 +19,7 @@ backend/generated-products/*.csv
 # The folder itself (with .gitkeep) IS tracked so the directory exists on clone.
 backend/generated-artwork/*
 !backend/generated-artwork/.gitkeep
+
+# Etsy OAuth tokens (persisted by the integration layer). Contains
+# access/refresh tokens; treat as a secret.
+backend/data/etsy_tokens.json

@@ -51,8 +51,14 @@ const {
   stripPrepKeepItems,
   buildNewItem,
   tryDeleteFile,
-  getItems
+  getItems,
+  resolveDiskPath: resolveArtworkDiskPath
 } = require("../services/artworkAssetService");
+
+// Integration services (mock-safe by default; live mode opt-in via env flags)
+const imageGenService = require("../services/integrations/imageGenerationService");
+const printifyIntegration = require("../services/integrations/printifyIntegrationService");
+const etsyIntegration = require("../services/integrations/etsyIntegrationService");
 
 // ---- Multer setup for artwork uploads ----
 // We accept ONE file per request under field name `file`. The file is
@@ -1002,6 +1008,256 @@ router.post("/:id/create-etsy-draft", async (req, res) => {
   } catch (error) {
     console.error("Error creating Etsy draft:", error);
     res.status(500).json({ success: false, message: "Failed to create Etsy draft" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/generate-artwork-image
+// Generates an artwork image using the prepared brief and adds
+// it to artworkAssets.items[] as type="generated".
+//
+// Requires:
+//   - artworkAssets.artworkPrompt present (run prepare-artwork first)
+//
+// Mode behavior:
+//   - mock (default): writes a deterministic SVG placeholder; never fails.
+//   - live (ENABLE_REAL_IMAGE_GENERATION=true + OPENAI_API_KEY): calls
+//     the configured image provider and writes the returned PNG.
+//
+// Either way the new asset starts as status="draft" and shows up
+// alongside any uploaded items — approve / reject / set-primary
+// via the existing artwork asset routes.
+// ============================================================
+const fsForImageGen = require("fs");
+const pathForImageGen = require("path");
+
+router.post("/:id/generate-artwork-image", async (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const artworkAssets = product.artworkAssets;
+    if (!artworkAssets || !artworkAssets.artworkPrompt) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Prepare the artwork brief first. Run POST /api/products/:id/prepare-artwork before generating an image."
+      });
+    }
+
+    const mode = imageGenService.getMode();
+    console.log(`🎨 Generating artwork image (${mode}) for product ${req.params.id}`);
+
+    let imgResult;
+    try {
+      imgResult = await imageGenService.generateArtworkImage({
+        prompt: artworkAssets.artworkPrompt,
+        negativePrompt: artworkAssets.negativePrompt || "",
+        recommendedCanvasSize: artworkAssets.recommendedCanvasSize || "",
+        transparentBackground: Boolean(artworkAssets.transparentBackgroundRequired),
+        productId: req.params.id
+      });
+    } catch (genErr) {
+      // Live-mode failure surfaces as 502 — mock mode never throws.
+      console.error("Image generation failed:", genErr.message);
+      return res.status(502).json({
+        success: false,
+        message: `Image generation failed: ${genErr.message}. ` +
+          `Set ENABLE_REAL_IMAGE_GENERATION=false to use the mock placeholder.`
+      });
+    }
+
+    // Write the buffer to a temp path inside ARTWORK_DIR, then let
+    // buildNewItem rename it into the canonical <productId>_<assetId>_<orig>
+    // form. We use a unique temp name so multiple parallel requests
+    // don't collide.
+    if (!fsForImageGen.existsSync(ARTWORK_DIR)) {
+      fsForImageGen.mkdirSync(ARTWORK_DIR, { recursive: true });
+    }
+    const tempName = `imggen_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${imgResult.originalFileName || "artwork.png"}`;
+    const tempPath = pathForImageGen.join(ARTWORK_DIR, tempName);
+    fsForImageGen.writeFileSync(tempPath, imgResult.buffer);
+
+    let newItem;
+    try {
+      newItem = buildNewItem({
+        productId: req.params.id,
+        type: "generated",
+        fileName: imgResult.originalFileName || "artwork.png",
+        mimeType: imgResult.mimeType,
+        sizeBytes: imgResult.buffer.length,
+        diskPath: tempPath,
+        sourceConceptId: product.selectedConceptId || null,
+        requestedPrimary: false
+      });
+    } catch (e) {
+      // Best-effort cleanup if we wrote the temp file but can't register it.
+      try { fsForImageGen.unlinkSync(tempPath); } catch (_) {}
+      throw e;
+    }
+
+    // SVG dimensions aren't readable by image-size; patch them in from the
+    // provider when available so the UI can show width/height.
+    if ((newItem.width == null || newItem.height == null) && imgResult.dimensions) {
+      newItem.width = imgResult.dimensions.width || newItem.width;
+      newItem.height = imgResult.dimensions.height || newItem.height;
+    }
+    // Attach provider provenance.
+    newItem.providerMeta = imgResult.providerMeta || null;
+    newItem.generationMode = imgResult.mode || mode;
+
+    const nextArtwork = addItem(artworkAssets, newItem);
+    const updatedProduct = updateProduct(req.params.id, {
+      artworkStatus: deriveArtworkStatus(nextArtwork),
+      artworkAssets: nextArtwork
+    });
+
+    res.json({
+      success: true,
+      data: updatedProduct,
+      meta: {
+        mode: imgResult.mode || mode,
+        provider: (imgResult.providerMeta && imgResult.providerMeta.provider) || null,
+        assetId: newItem.id
+      }
+    });
+  } catch (error) {
+    console.error("Error generating artwork image:", error);
+    res.status(500).json({ success: false, message: "Failed to generate artwork image" });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/create-printify-product
+// Creates a real Printify product DRAFT — or, in preview/mock
+// mode, stores a deterministic stub keyed off printifyPreview.
+//
+// Requires:
+//   - product.printifyPreview present (run generate-printify-preview first)
+//
+// Live-mode (ENABLE_REAL_PRINTIFY=true + PRINTIFY_API_TOKEN + PRINTIFY_SHOP_ID)
+// additionally requires:
+//   - an approved primary artwork item on the product
+//
+// NEVER auto-publishes — every call creates a draft only.
+// ============================================================
+router.post("/:id/create-printify-product", async (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const preview = product.printifyPreview;
+    if (!preview || !preview.apiPayloadPreview) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Generate the Printify Preview first — POST /api/products/:id/generate-printify-preview."
+      });
+    }
+
+    const mode = printifyIntegration.getMode();
+    let primaryArtworkAbsolutePath = null;
+    let primaryArtworkOriginalName = null;
+
+    if (mode === "live") {
+      // Live mode: require an APPROVED primary artwork item.
+      const items = getItems(product.artworkAssets);
+      const primary = items.find((it) => it.isPrimary === true);
+      if (!primary) {
+        return res.status(400).json({
+          success: false,
+          message: "Live Printify requires a primary artwork. Mark one item as primary first."
+        });
+      }
+      if (primary.status !== "approved") {
+        return res.status(400).json({
+          success: false,
+          message: "Live Printify requires the primary artwork to be APPROVED. Approve it first."
+        });
+      }
+      const diskPath = resolveArtworkDiskPath(primary);
+      if (!diskPath) {
+        return res.status(400).json({
+          success: false,
+          message: "Could not resolve primary artwork file on disk."
+        });
+      }
+      primaryArtworkAbsolutePath = diskPath;
+      primaryArtworkOriginalName = primary.originalFileName || primary.fileName;
+    }
+
+    console.log(`🛍️  Creating Printify product (${mode}) for product ${req.params.id}`);
+    const printifyProduct = await printifyIntegration.createProductDraft({
+      apiPayload: preview.apiPayloadPreview,
+      primaryArtworkAbsolutePath,
+      primaryArtworkOriginalName
+    });
+
+    const updatedProduct = updateProduct(req.params.id, { printifyProduct });
+    res.json({ success: true, data: updatedProduct, meta: { mode } });
+  } catch (error) {
+    console.error("Error creating Printify product:", error);
+    res.status(502).json({
+      success: false,
+      message: `Failed to create Printify product: ${error.message}`
+    });
+  }
+});
+
+// ============================================================
+// POST /api/products/:id/create-real-etsy-draft
+// Creates a real Etsy DRAFT listing if live mode is on AND the
+// account is OAuth-authorized. Otherwise delegates to the existing
+// Etsy draft simulator so the surface remains useful in mock mode.
+//
+// Requires (both modes):
+//   - product.aiData (existing constraint, matches /create-etsy-draft)
+//
+// NEVER auto-publishes — state="draft".
+// ============================================================
+router.post("/:id/create-real-etsy-draft", async (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    if (!product.aiData) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Generate AI content first (POST /api/products/:id/generate-ai) — Etsy listings need title/tags/description/price."
+      });
+    }
+
+    const mode = etsyIntegration.getMode();
+    console.log(`🛒 Creating Etsy draft (${mode}) for product ${req.params.id}`);
+
+    const etsyDraft = await etsyIntegration.createDraftListing({
+      product,
+      listingData: product.listingData,
+      aiData: product.aiData,
+      printifyProduct: product.printifyProduct
+    });
+
+    // Mirror /create-etsy-draft behavior so this route is interchangeable:
+    // we move status to "etsy_draft_created" and overwrite etsyDraft.
+    const updatedProduct = updateProduct(req.params.id, {
+      etsyDraft,
+      status: "etsy_draft_created"
+    });
+
+    res.json({ success: true, data: updatedProduct, meta: { mode } });
+  } catch (error) {
+    console.error("Error creating real Etsy draft:", error);
+    res.status(502).json({
+      success: false,
+      message: `Failed to create Etsy draft: ${error.message}`
+    });
   }
 });
 
