@@ -4,10 +4,12 @@
 // Uses rule-based scoring on the server (no paid AI). Styling matches Dashboard tokens.
 // ============================================================
 
-import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { fetchIdeas, scoreIdea, deleteIdea, convertIdeaToProduct } from "../services/api";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { fetchIdeas, scoreIdea, deleteIdea, convertIdeaToProduct, getApiConnectionHint } from "../services/api";
 import IdeaCard from "../components/IdeaCard";
 import AddIdeaModal from "../components/AddIdeaModal";
+import ErrorBanner from "../components/ErrorBanner";
+import { useDebouncedValue } from "../utils/useDebouncedValue";
 
 const IdeasResearch = ({ onBack, onOpenTrends }) => {
   const [ideas, setIdeas] = useState([]);
@@ -20,23 +22,36 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
   const [filterPlatform, setFilterPlatform] = useState("");
   const [filterDecision, setFilterDecision] = useState("");
   const [filterProductType, setFilterProductType] = useState("");
+  const [retrying, setRetrying] = useState(false);
+  const loadGenRef = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const debouncedPlatform = useDebouncedValue(filterPlatform, 400);
+  const debouncedDecision = useDebouncedValue(filterDecision, 400);
+  const debouncedProductType = useDebouncedValue(filterProductType, 400);
+
+  const load = useCallback(async (isRetry = false) => {
+    const gen = ++loadGenRef.current;
+    if (isRetry) setRetrying(true);
+    else setLoading(true);
     setError(null);
     try {
       const data = await fetchIdeas({
-        sourcePlatform: filterPlatform || undefined,
-        decisionStatus: filterDecision || undefined,
-        productType: filterProductType || undefined
+        sourcePlatform: debouncedPlatform || undefined,
+        decisionStatus: debouncedDecision || undefined,
+        productType: debouncedProductType || undefined
       });
+      if (gen !== loadGenRef.current) return;
       setIdeas(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e.message || "Could not load ideas. Is the backend running?");
+      if (gen !== loadGenRef.current) return;
+      setError(e.message || "Could not load ideas.");
     } finally {
-      setLoading(false);
+      if (gen === loadGenRef.current) {
+        setLoading(false);
+        setRetrying(false);
+      }
     }
-  }, [filterPlatform, filterDecision, filterProductType]);
+  }, [debouncedPlatform, debouncedDecision, debouncedProductType]);
 
   useEffect(() => {
     load();
@@ -244,21 +259,13 @@ const IdeasResearch = ({ onBack, onOpenTrends }) => {
           </div>
         )}
 
-        {error && (
-          <div
-            style={{
-              marginBottom: "16px",
-              padding: "14px 16px",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--danger)",
-              background: "var(--danger-dim)",
-              color: "var(--danger)",
-              fontSize: "13px"
-            }}
-          >
-            ⚠️ {error}
-          </div>
-        )}
+        <ErrorBanner
+          title="Could not load ideas"
+          message={error}
+          hint={error ? getApiConnectionHint() : null}
+          onRetry={error ? () => load(true) : undefined}
+          retrying={retrying}
+        />
 
         <div
           style={{

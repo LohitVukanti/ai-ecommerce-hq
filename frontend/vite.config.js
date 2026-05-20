@@ -9,8 +9,11 @@ export default defineConfig({
         target: "http://localhost:3001",
         changeOrigin: true
       },
-
       "/downloads": {
+        target: "http://localhost:3001",
+        changeOrigin: true
+      },
+      "/artwork": {
         target: "http://localhost:3001",
         changeOrigin: true
       }

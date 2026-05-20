@@ -11,7 +11,8 @@
 // ============================================================
 
 import React, { useCallback, useEffect, useState } from "react";
-import { fetchIntegrationStatus, getEtsyAuthStartUrl } from "../services/api";
+import { fetchIntegrationStatus, getEtsyAuthStartUrl, getApiConnectionHint } from "../services/api";
+import ErrorBanner from "../components/ErrorBanner";
 
 const MODE_STYLES = {
   live: {
@@ -254,14 +255,16 @@ function ProviderCard({ provider, onConnectEtsy }) {
   );
 }
 
-const Integrations = ({ onBack }) => {
+const Integrations = ({ onBack, initialOauthBanner = null }) => {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [oauthBanner, setOauthBanner] = useState(null);
+  const [oauthBanner, setOauthBanner] = useState(initialOauthBanner);
+  const [retrying, setRetrying] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (isRetry = false) => {
+    if (isRetry) setRetrying(true);
+    else setLoading(true);
     setError(null);
     try {
       const data = await fetchIntegrationStatus();
@@ -270,6 +273,7 @@ const Integrations = ({ onBack }) => {
       setError(e.message || "Could not load integration status. Is the backend running?");
     } finally {
       setLoading(false);
+      setRetrying(false);
     }
   }, []);
 
@@ -277,9 +281,9 @@ const Integrations = ({ onBack }) => {
     load();
   }, [load]);
 
-  // Surface the result of the Etsy OAuth callback if we landed back here
-  // with ?etsy_oauth=success | error&reason=... in the URL.
+  // Legacy: if Integrations mounted without App bootstrap, still read URL once.
   useEffect(() => {
+    if (initialOauthBanner) return;
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const flag = params.get("etsy_oauth");
@@ -292,10 +296,8 @@ const Integrations = ({ onBack }) => {
         text: `Etsy OAuth failed: ${params.get("reason") || "unknown error"}`
       });
     }
-    // Clean the URL so a refresh doesn't keep showing the banner.
-    const next = window.location.pathname;
-    window.history.replaceState({}, "", next);
-  }, []);
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [initialOauthBanner]);
 
   const handleConnectEtsy = () => {
     window.location.href = getEtsyAuthStartUrl();
@@ -412,24 +414,18 @@ const Integrations = ({ onBack }) => {
         {/* Body */}
         {loading && (
           <div style={{ padding: "40px", textAlign: "center", color: "var(--text-muted)" }}>
+            <span className="spinner" style={{ marginRight: "8px", verticalAlign: "middle" }} />
             Loading integration status…
           </div>
         )}
 
-        {error && (
-          <div
-            style={{
-              padding: "16px 20px",
-              background: "rgba(229, 83, 75, 0.08)",
-              border: "1px solid rgba(229, 83, 75, 0.3)",
-              borderRadius: "var(--radius)",
-              color: "#f85149",
-              fontSize: "13px"
-            }}
-          >
-            {error}
-          </div>
-        )}
+        <ErrorBanner
+          title="Could not load integrations"
+          message={error}
+          hint={error ? getApiConnectionHint() : null}
+          onRetry={error ? () => load(true) : undefined}
+          retrying={retrying}
+        />
 
         {!loading && !error && status && (
           <div

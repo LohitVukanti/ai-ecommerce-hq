@@ -341,6 +341,8 @@ Open http://localhost:3000 in your browser. You should see the dashboard!
 
 ## Private deployment (Vercel + Render)
 
+> **Full checklists:** See [DEPLOYMENT_CHECKLIST.md](./DEPLOYMENT_CHECKLIST.md) for step-by-step Render/Vercel deploy instructions, integration go-live steps, production testing checklist, and rollback plan.
+
 This stack is suitable for a **demo or private MVP**: SQLite and generated CSVs live on the **Render** instance’s disk (ephemeral on free tier — acceptable for trials). For multi-instance or durable data, plan **Postgres (e.g. Supabase)** and object storage for files later.
 
 **Important:** Do not enable real **OpenAI**, **Etsy**, or **Printify** keys until you are ready; the app runs in template/mock modes without them.

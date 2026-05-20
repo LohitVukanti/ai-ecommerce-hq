@@ -9,10 +9,11 @@
 // ============================================================
 
 import React, { useState, useEffect } from "react";
-import { fetchProducts } from "../services/api";
+import { fetchProducts, getApiConnectionHint } from "../services/api";
 import ProductCard from "../components/ProductCard";
 import AddProductModal from "../components/AddProductModal";
 import ProductDetailModal from "../components/ProductDetailModal";
+import ErrorBanner from "../components/ErrorBanner";
 
 // The order of statuses in the workflow
 const STATUSES = [
@@ -30,6 +31,7 @@ const Dashboard = ({ onOpenIdeas, onOpenTrends, onOpenIntegrations }) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [retrying, setRetrying] = useState(false);
 
   // Which status tab is active ("all" shows everything)
   const [activeFilter, setActiveFilter] = useState("all");
@@ -43,17 +45,18 @@ const Dashboard = ({ onOpenIdeas, onOpenTrends, onOpenIntegrations }) => {
     loadProducts();
   }, []);
 
-  const loadProducts = async () => {
-    setLoading(true);
+  const loadProducts = async (isRetry = false) => {
+    if (isRetry) setRetrying(true);
+    else setLoading(true);
     setError(null);
     try {
       const data = await fetchProducts();
-      // Sort by newest first
       setProducts(data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
     } catch (err) {
-      setError("Could not load products. Make sure the backend is running on port 3001.");
+      setError(err.message || "Could not load products.");
     } finally {
       setLoading(false);
+      setRetrying(false);
     }
   };
 
@@ -69,7 +72,12 @@ const Dashboard = ({ onOpenIdeas, onOpenTrends, onOpenIntegrations }) => {
     setProducts((prev) =>
       prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p))
     );
-    setSelectedProduct(updatedProduct); // Also update the currently open modal
+    setSelectedProduct(updatedProduct);
+  };
+
+  const handleProductDeleted = (productId) => {
+    setProducts((prev) => prev.filter((p) => p.id !== productId));
+    setSelectedProduct(null);
   };
 
   // ---- Filtering ----
@@ -212,20 +220,13 @@ const Dashboard = ({ onOpenIdeas, onOpenTrends, onOpenIntegrations }) => {
           </p>
         </div>
 
-        {/* Error Banner */}
-        {error && (
-          <div style={{
-            background: "var(--danger-dim)", border: "1px solid var(--danger)",
-            borderRadius: "var(--radius-md)", padding: "16px 20px",
-            marginBottom: "24px", color: "var(--danger)"
-          }}>
-            <div style={{ fontWeight: 700, marginBottom: "4px" }}>⚠️ Connection Error</div>
-            <div style={{ fontSize: "13px" }}>{error}</div>
-            <div style={{ fontSize: "12px", marginTop: "8px", color: "var(--text-secondary)" }}>
-              Start the backend: <code style={{ background: "var(--bg-primary)", padding: "2px 6px", borderRadius: "4px" }}>cd backend && npm run dev</code>
-            </div>
-          </div>
-        )}
+        <ErrorBanner
+          title="Connection Error"
+          message={error}
+          hint={error ? getApiConnectionHint() : null}
+          onRetry={error ? () => loadProducts(true) : undefined}
+          retrying={retrying}
+        />
 
         {/* Status Filter Tabs */}
         <div style={{
@@ -348,6 +349,7 @@ const Dashboard = ({ onOpenIdeas, onOpenTrends, onOpenIntegrations }) => {
           product={selectedProduct}
           onClose={() => setSelectedProduct(null)}
           onProductUpdated={handleProductUpdated}
+          onProductDeleted={handleProductDeleted}
         />
       )}
     </div>

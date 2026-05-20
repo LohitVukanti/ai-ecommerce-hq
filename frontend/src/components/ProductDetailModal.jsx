@@ -8,7 +8,7 @@
 // - Digital Product Generator button + download links
 // ============================================================
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import PodConceptStudio from "./PodConceptStudio";
 import StatusBadge from "./StatusBadge";
 import ScoreMeter from "./ScoreMeter";
@@ -110,9 +110,12 @@ const ActionButton = ({ onClick, disabled, loading, icon, label, variant = "prim
 };
 
 
-const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated }) => {
-  // Keep a local copy of the product so we can update it without re-fetching
+const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated, onProductDeleted }) => {
   const [product, setProduct] = useState(initialProduct);
+
+  useEffect(() => {
+    setProduct(initialProduct);
+  }, [initialProduct?.id, initialProduct?.updatedAt]);
 
   // Track which action is currently loading
   // "ai" | "approve" | "reject" | "etsy" | "digital" | "delete"
@@ -149,14 +152,16 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
   const handleDelete = async () => {
     const confirmed = window.confirm(`Delete "${product.title}"? This cannot be undone.`);
     if (!confirmed) return;
-  
+
     setLoadingAction("delete");
     setError(null);
-  
+
     try {
       await deleteProduct(product.id);
+      if (typeof onProductDeleted === "function") {
+        onProductDeleted(product.id);
+      }
       onClose();
-      window.location.reload();
     } catch (err) {
       setError(err.message || "Failed to delete product");
     } finally {

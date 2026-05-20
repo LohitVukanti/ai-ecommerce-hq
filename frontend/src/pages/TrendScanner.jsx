@@ -6,14 +6,17 @@
 // which then flows into scoring → product → POD → design package.
 // ============================================================
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
   fetchTrendScans,
   deleteTrendScan,
-  convertTrendScanToIdea
+  convertTrendScanToIdea,
+  getApiConnectionHint
 } from "../services/api";
 import TrendScanCard from "../components/TrendScanCard";
 import AddTrendScanModal from "../components/AddTrendScanModal";
+import ErrorBanner from "../components/ErrorBanner";
+import { useDebouncedValue } from "../utils/useDebouncedValue";
 
 const TrendScanner = ({ onBack, onOpenIdeas }) => {
   const [scans, setScans] = useState([]);
@@ -25,22 +28,34 @@ const TrendScanner = ({ onBack, onOpenIdeas }) => {
 
   const [filterPlatform, setFilterPlatform] = useState("");
   const [filterProductType, setFilterProductType] = useState("");
+  const [retrying, setRetrying] = useState(false);
+  const loadGenRef = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const debouncedPlatform = useDebouncedValue(filterPlatform, 400);
+  const debouncedProductType = useDebouncedValue(filterProductType, 400);
+
+  const load = useCallback(async (isRetry = false) => {
+    const gen = ++loadGenRef.current;
+    if (isRetry) setRetrying(true);
+    else setLoading(true);
     setError(null);
     try {
       const data = await fetchTrendScans({
-        sourcePlatform: filterPlatform || undefined,
-        productType: filterProductType || undefined
+        sourcePlatform: debouncedPlatform || undefined,
+        productType: debouncedProductType || undefined
       });
+      if (gen !== loadGenRef.current) return;
       setScans(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e.message || "Could not load trend scans. Is the backend running?");
+      if (gen !== loadGenRef.current) return;
+      setError(e.message || "Could not load trend scans.");
     } finally {
-      setLoading(false);
+      if (gen === loadGenRef.current) {
+        setLoading(false);
+        setRetrying(false);
+      }
     }
-  }, [filterPlatform, filterProductType]);
+  }, [debouncedPlatform, debouncedProductType]);
 
   useEffect(() => {
     load();
@@ -222,21 +237,13 @@ const TrendScanner = ({ onBack, onOpenIdeas }) => {
           </div>
         )}
 
-        {error && (
-          <div
-            style={{
-              marginBottom: "16px",
-              padding: "14px 16px",
-              borderRadius: "var(--radius-md)",
-              border: "1px solid var(--danger)",
-              background: "var(--danger-dim)",
-              color: "var(--danger)",
-              fontSize: "13px"
-            }}
-          >
-            ⚠️ {error}
-          </div>
-        )}
+        <ErrorBanner
+          title="Could not load trend scans"
+          message={error}
+          hint={error ? getApiConnectionHint() : null}
+          onRetry={error ? () => load(true) : undefined}
+          retrying={retrying}
+        />
 
         <div
           style={{

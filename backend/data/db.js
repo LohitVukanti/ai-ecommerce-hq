@@ -768,6 +768,15 @@ const getAnalyticsSummary = () => {
   };
 };
 
+function pingDatabase() {
+  db.prepare("SELECT 1 AS ok").get();
+  return true;
+}
+
+function closeDatabase() {
+  db.close();
+}
+
 module.exports = {
   getAllProducts,
   getProductById,
@@ -775,6 +784,8 @@ module.exports = {
   updateProduct,
   deleteProduct,
   getAnalyticsSummary,
+  pingDatabase,
+  closeDatabase,
   getAllIdeas,
   getIdeaById,
   createIdea,
