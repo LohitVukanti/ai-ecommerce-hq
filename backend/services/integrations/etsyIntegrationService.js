@@ -17,8 +17,9 @@
 //   - An access token obtained via the OAuth callback handler.
 //
 // Tokens are persisted to backend/data/etsy_tokens.json
-// (gitignored). State + PKCE verifiers are kept in an in-memory
-// map keyed by `state`; entries auto-expire after 10 minutes.
+// (gitignored). OAuth PKCE state is persisted to
+// backend/data/etsy_oauth_state.json (gitignored) so the callback
+// survives backend restarts; entries auto-expire after 10 minutes.
 //
 // We DO NOT auto-publish — every listing is created with
 // state="draft".
@@ -34,18 +35,54 @@ const ETSY_OAUTH_AUTHORIZE = "https://www.etsy.com/oauth/connect";
 const ETSY_TOKEN_URL = `${ETSY_API_BASE}/v3/public/oauth/token`;
 
 const TOKEN_FILE = path.join(__dirname, "..", "..", "data", "etsy_tokens.json");
+const OAUTH_STATE_FILE = path.join(__dirname, "..", "..", "data", "etsy_oauth_state.json");
 
-// In-memory state cache for OAuth flow (state -> { codeVerifier, createdAt }).
-// Lives only for the lifetime of the backend process — acceptable for a
-// private MVP where a single user does the OAuth flow once.
-const _oauthState = new Map();
 const STATE_TTL_MS = 10 * 60 * 1000;
 
-function _gcState() {
-  const now = Date.now();
-  for (const [k, v] of _oauthState.entries()) {
-    if (now - v.createdAt > STATE_TTL_MS) _oauthState.delete(k);
+function loadOAuthStateMap() {
+  try {
+    if (!fs.existsSync(OAUTH_STATE_FILE)) return {};
+    const raw = fs.readFileSync(OAUTH_STATE_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (e) {
+    console.error("Etsy: failed to read OAuth state file:", e.message);
+    return {};
   }
+}
+
+function saveOAuthStateMap(map) {
+  const dir = path.dirname(OAUTH_STATE_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(OAUTH_STATE_FILE, JSON.stringify(map, null, 2));
+}
+
+function _gcState(map) {
+  const now = Date.now();
+  let changed = false;
+  for (const [k, v] of Object.entries(map)) {
+    if (!v || now - (v.createdAt || 0) > STATE_TTL_MS) {
+      delete map[k];
+      changed = true;
+    }
+  }
+  if (changed) saveOAuthStateMap(map);
+  return map;
+}
+
+function setOAuthState(state, entry) {
+  const map = _gcState(loadOAuthStateMap());
+  map[state] = entry;
+  saveOAuthStateMap(map);
+}
+
+function takeOAuthState(state) {
+  const map = _gcState(loadOAuthStateMap());
+  const entry = map[state];
+  if (!entry) return null;
+  delete map[state];
+  saveOAuthStateMap(map);
+  return entry;
 }
 
 // ------------------------------------------------------------
@@ -134,9 +171,9 @@ function getHealthReport() {
     needsOAuth: needsOAuth(),
     missingEnv: missing,
     powers:
-      "POST /api/products/:id/create-real-etsy-draft — creates a real Etsy DRAFT listing " +
-      "(never auto-published). In mock mode it falls back to the existing simulator. " +
-      "OAuth endpoints: GET /api/etsy/auth/start → 302 to Etsy, GET /api/etsy/auth/callback.",
+      "POST /api/products/:id/create-real-etsy-draft — Etsy DRAFT when live (never auto-published). " +
+      "POST /api/products/:id/create-etsy-draft — always simulated (mock). " +
+      "OAuth: GET /api/etsy/auth/start → 302, GET /api/etsy/auth/callback.",
     setup:
       "1) Create an Etsy app at https://www.etsy.com/developers/your-apps  " +
       "2) Set Callback URL there to match ETSY_REDIRECT_URI exactly  " +
@@ -166,8 +203,8 @@ function generateState() {
 }
 
 /**
- * Build the OAuth start URL and stash the PKCE verifier in memory
- * so /auth/callback can complete the exchange.
+ * Build the OAuth start URL and persist the PKCE verifier on disk
+ * so /auth/callback can complete the exchange after a restart.
  *
  * @returns {{url: string, state: string}}
  */
@@ -175,10 +212,9 @@ function buildAuthStartUrl(scopes = ["listings_w", "listings_r", "shops_r", "tra
   if (!hasClientCreds() || !hasRedirectUri()) {
     throw new Error("Etsy OAuth not configured. Set ETSY_CLIENT_ID, ETSY_CLIENT_SECRET, ETSY_REDIRECT_URI.");
   }
-  _gcState();
   const state = generateState();
   const { codeVerifier, codeChallenge } = generatePkce();
-  _oauthState.set(state, { codeVerifier, createdAt: Date.now() });
+  setOAuthState(state, { codeVerifier, createdAt: Date.now() });
 
   const params = new URLSearchParams({
     response_type: "code",
@@ -195,15 +231,13 @@ function buildAuthStartUrl(scopes = ["listings_w", "listings_r", "shops_r", "tra
 
 /**
  * Exchange an authorization code for tokens. The state must match
- * a value previously issued by buildAuthStartUrl() in this process.
+ * a value previously issued by buildAuthStartUrl() (persisted on disk).
  */
 async function exchangeCodeForToken(code, state) {
-  _gcState();
-  const entry = _oauthState.get(state);
+  const entry = takeOAuthState(state);
   if (!entry) {
     throw new Error("Invalid or expired OAuth state. Restart the connection flow.");
   }
-  _oauthState.delete(state);
 
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -365,8 +399,14 @@ function buildDraftBody({ product, listingData, aiData, printifyProduct }) {
  * Create a draft listing on Etsy (or simulate in mock mode).
  * NEVER auto-publishes — state is always "draft".
  */
-async function createDraftListing({ product, listingData, aiData, printifyProduct }) {
-  if (!isConfigured()) {
+async function createDraftListing({
+  product,
+  listingData,
+  aiData,
+  printifyProduct,
+  forceMock = false
+}) {
+  if (forceMock || !isConfigured()) {
     // Fall back to the existing mock simulator. We synthesize the
     // aiData shape it expects from whatever the product has so this
     // works even for products that never ran aiService.
@@ -379,8 +419,16 @@ async function createDraftListing({ product, listingData, aiData, printifyProduc
     const result = await simulateEtsyDraftFallback(product, synth);
     return {
       ...result,
-      via: "mock_fallback",
-      mockReason: !liveFlagOn() ? "live_disabled" : (!hasClientCreds() ? "missing_client_creds" : (!hasAccessToken() ? "no_oauth_token" : "unknown"))
+      via: forceMock ? "mock_simulated" : "mock_fallback",
+      mockReason: forceMock
+        ? "forced_mock_route"
+        : !liveFlagOn()
+          ? "live_disabled"
+          : !hasClientCreds()
+            ? "missing_client_creds"
+            : !hasAccessToken()
+              ? "no_oauth_token"
+              : "unknown"
     };
   }
 

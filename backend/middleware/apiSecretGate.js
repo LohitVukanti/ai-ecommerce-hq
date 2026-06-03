@@ -2,12 +2,13 @@
 // middleware/apiSecretGate.js — Optional shared-secret protection
 // ============================================================
 // When API_SECRET is set on the backend, all /api/* routes (except
-// health + Etsy OAuth callback) require X-Api-Key header.
+// health + Etsy OAuth start/callback) require X-Api-Key header.
 // When unset, this middleware is a no-op — local dev unchanged.
 // ============================================================
 
 const PUBLIC_PATHS = new Set([
   "/api/health",
+  "/api/etsy/auth/start",
   "/api/etsy/auth/callback"
 ]);
 

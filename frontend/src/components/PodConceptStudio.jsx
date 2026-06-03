@@ -21,6 +21,11 @@ import {
   createPrintifyProduct,
   resolveDownloadUrl
 } from "../services/api";
+import {
+  IntegrationModePill,
+  inferArtworkImageMode,
+  inferPrintifyProductMode
+} from "../utils/integrationMode";
 
 const SectionHeader = ({ title, icon }) => (
   <div style={{
@@ -1031,7 +1036,7 @@ const PodConceptStudio = ({ product, onProductChange }) => {
           )}
         </div>
 
-        {/* ---- Artwork Generation Prep (no image APIs) ---- */}
+        {/* ---- Artwork Generation Prep + image generation ---- */}
         <div
           style={{
             borderTop: "1px solid var(--border)",
@@ -1063,9 +1068,13 @@ const PodConceptStudio = ({ product, onProductChange }) => {
                 Artwork generation prep
               </div>
               <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
-                Builds a paste-ready artwork brief, negative prompt, canvas spec, and print-file checklist.
+                Two steps: <strong style={{ color: "var(--text-secondary)" }}>Prepare Artwork</strong> builds the text brief;{" "}
+                <strong style={{ color: "var(--text-secondary)" }}>Generate artwork image</strong> creates the file (mock SVG or live OpenAI when enabled).
               </div>
             </div>
+            {inferArtworkImageMode(product) && (
+              <IntegrationModePill mode={inferArtworkImageMode(product)} />
+            )}
           </div>
 
           <div
@@ -1080,8 +1089,11 @@ const PodConceptStudio = ({ product, onProductChange }) => {
               marginBottom: "12px"
             }}
           >
-            <strong style={{ letterSpacing: "0.04em", textTransform: "uppercase" }}>Preparation mode only</strong>
-            {" — "}no image APIs are called yet. Paste the brief into your image-generation tool (DALL·E / SDXL / Ideogram), or upload artwork manually once exported.
+            <strong style={{ letterSpacing: "0.04em", textTransform: "uppercase" }}>Prepare Artwork</strong>
+            {" — "}generates the artwork prompt, negative prompt, canvas size, and print-file checklist (template only; no image file yet).{" "}
+            <strong style={{ letterSpacing: "0.04em", textTransform: "uppercase" }}>Generate artwork image</strong>
+            {" — "}calls the backend image route after the brief exists (mock placeholder unless{" "}
+            <code style={{ fontFamily: "monospace" }}>ENABLE_REAL_IMAGE_GENERATION=true</code> + OpenAI key). You can also upload artwork manually.
           </div>
 
           <button
@@ -1473,8 +1485,11 @@ function ArtworkAssetManager({
           {generating ? <span className="spinner" /> : <span>🎨</span>}
           {generating ? "Generating…" : "Generate artwork image"}
         </button>
-        <span style={{ fontSize: "11px", color: "var(--text-muted)", lineHeight: 1.4 }}>
-          PNG / JPEG / WEBP / GIF / SVG · max 20 MB · mock SVG is generated when image generation is off
+        <span style={{ fontSize: "11px", color: "var(--text-muted)", lineHeight: 1.4, display: "inline-flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          PNG / JPEG / WEBP / GIF / SVG · max 20 MB
+          {inferArtworkImageMode(product) && (
+            <IntegrationModePill mode={inferArtworkImageMode(product)} />
+          )}
         </span>
       </div>
 
@@ -1934,17 +1949,20 @@ function CreatePrintifyProductPanel({ product, onProductChange }) {
         }}
       >
         <div>
-          <div
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 800,
-              fontSize: "12px",
-              letterSpacing: "0.05em",
-              textTransform: "uppercase",
-              color: "var(--accent)"
-            }}
-          >
-            Create Printify product
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <div
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 800,
+                fontSize: "12px",
+                letterSpacing: "0.05em",
+                textTransform: "uppercase",
+                color: "var(--accent)"
+              }}
+            >
+              Create Printify product
+            </div>
+            <IntegrationModePill mode={inferPrintifyProductMode(lastResult || stored) || "preview"} />
           </div>
           <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px", lineHeight: 1.5 }}>
             Creates a real Printify DRAFT (or a deterministic preview stub when live mode is off).
@@ -2003,8 +2021,9 @@ function CreatePrintifyProductPanel({ product, onProductChange }) {
             lineHeight: 1.5
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap" }}>
-            <span>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <IntegrationModePill mode={inferPrintifyProductMode(lastResult || stored)} />
               <strong style={{ color: "var(--text-primary)" }}>
                 {(lastResult || stored).isMock ? "Preview stub" : "Live draft"}
               </strong>

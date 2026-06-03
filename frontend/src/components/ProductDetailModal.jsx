@@ -24,6 +24,7 @@ import {
   generateDigitalProduct,
   resolveDownloadUrl
 } from "../services/api";
+import { IntegrationModePill, inferEtsyDraftMode } from "../utils/integrationMode";
 
 // Helper: A collapsible section for organizing content
 const Section = ({ title, icon, children, accent }) => (
@@ -143,9 +144,8 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
   const handleGenerateAI      = () => runAction("ai",      generateAI,              "AI content generated.");
   const handleApprove         = () => runAction("approve", approveProduct,          "Listing approved — Etsy draft is now available.");
   const handleReject          = () => runAction("reject",  rejectProduct,           "Product marked as rejected.");
-  const handleEtsyDraft       = () => runAction("etsy",    createEtsyDraft,         "Etsy draft (simulated) created.");
-  // Real Etsy draft (live mode if ENABLE_REAL_ETSY=true + OAuth done; mock fallback otherwise)
-  const handleEtsyDraftLive   = () => runAction("etsylive", createRealEtsyDraft,    "Etsy draft created (mode reported by backend).");
+  const handleEtsyDraft       = () => runAction("etsy",    createEtsyDraft,         "Etsy draft created (mock only — no Etsy API call).");
+  const handleEtsyDraftLive   = () => runAction("etsylive", createRealEtsyDraft,    "Etsy draft created (live when configured, otherwise mock fallback).");
   // Triggers template-based CSV generation — no AI API used
   const handleGenerateDigital = () => runAction("digital", generateDigitalProduct,  "Digital product CSV generated.");
 
@@ -271,7 +271,7 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
               onClick={handleEtsyDraft}
               loading={loadingAction === "etsy"}
               disabled={!!loadingAction}
-              icon="🛍️" label="Create Etsy Draft (Sim.)"
+              icon="🛍️" label="Create Etsy Draft (Mock only)"
               variant="primary"
             />
           )}
@@ -280,7 +280,7 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
               onClick={handleEtsyDraftLive}
               loading={loadingAction === "etsylive"}
               disabled={!!loadingAction}
-              icon="🛒" label="Create Etsy Draft (Live or Mock)"
+              icon="🛒" label="Create Etsy Draft (Live if configured)"
               variant="secondary"
             />
           )}
@@ -456,6 +456,9 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
           {/* Etsy Draft Info */}
           {product.etsyDraft && (
             <Section title="Etsy Draft Created" icon="🛍️" accent>
+              <div style={{ marginBottom: "10px" }}>
+                <IntegrationModePill mode={inferEtsyDraftMode(product.etsyDraft)} />
+              </div>
               <div style={{
                 padding: "12px 16px",
                 background: "var(--success-dim)",
@@ -466,9 +469,11 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
                 fontSize: "13px",
                 display: "flex", alignItems: "center", gap: "8px"
               }}>
-                ✅ {product.etsyDraft.isMock
-                  ? "Simulated Etsy draft created successfully! Add real Etsy credentials to create actual listings."
-                  : "Etsy draft listing created successfully!"}
+                ✅ {product.etsyDraft.via === "live"
+                  ? "Live Etsy draft created on your shop (draft state — not published)."
+                  : product.etsyDraft.via === "mock_simulated"
+                    ? "Mock-only Etsy draft stored locally — this route never calls the Etsy API."
+                    : "Simulated Etsy draft (mock fallback). Use Live if configured when ENABLE_REAL_ETSY=true and OAuth is complete."}
               </div>
               <Field label="Listing ID" value={`#${product.etsyDraft.listing_id}`} />
               <Field label="State" value={product.etsyDraft.state} />

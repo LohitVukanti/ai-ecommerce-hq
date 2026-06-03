@@ -450,18 +450,25 @@ This stack is suitable for a **demo or private MVP**: SQLite and generated CSVs 
    ```
 6. With `OPENAI_API_KEY` set, **Generate AI Content** uses the OpenAI API and returns structured JSON matching the dashboard. If the key is missing, or the API call fails, the backend **falls back to mock data** so the UI keeps working; check the server logs for error details.
 
-### Etsy (for real listing creation)
+### Etsy (OAuth + live draft listings)
 
-1. Register your app at https://www.etsy.com/developers/documentation
-2. Get your API Key, Shared Secret, and Shop ID
-3. Add them to your `.env` file:
+1. Create an app at https://www.etsy.com/developers/your-apps
+2. Set the app's **Callback URL** to match `ETSY_REDIRECT_URI` exactly (default local: `http://localhost:3001/api/etsy/auth/callback`)
+3. Add to `backend/.env` (or Render environment):
    ```
-   ETSY_API_KEY=your-key-here
-   ETSY_SHARED_SECRET=your-secret-here
-   ETSY_SHOP_ID=your-shop-id-here
+   ETSY_CLIENT_ID=your-client-id
+   ETSY_CLIENT_SECRET=your-client-secret
+   ETSY_REDIRECT_URI=http://localhost:3001/api/etsy/auth/callback
+   ENABLE_REAL_ETSY=true
+   ETSY_SHOP_ID=
    ```
-4. In `services/etsyService.js`, follow the TODO comments to implement OAuth 2.0
-5. Restart the backend
+   `ETSY_SHOP_ID` is optional — leave blank to resolve via the API after OAuth.
+4. Restart the backend, open **Integrations** → **Connect Etsy account**, and complete the browser OAuth flow.
+5. Tokens are written to `backend/data/etsy_tokens.json` (gitignored). Do **not** paste tokens into `.env` by hand — the callback sets:
+   - `ETSY_ACCESS_TOKEN` (stored in the tokens file, not required in `.env`)
+   - `ETSY_REFRESH_TOKEN` (same)
+6. In the product modal, use **Create Etsy Draft (Live if configured)** for real drafts when live mode is on. **Create Etsy Draft (Mock only)** always simulates and never calls Etsy.
+7. If `API_SECRET` is set, OAuth start/callback remain public; all other `/api/*` routes still require `X-Api-Key`.
 
 ---
 

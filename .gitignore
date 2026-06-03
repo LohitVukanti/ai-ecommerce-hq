@@ -23,3 +23,4 @@ backend/generated-artwork/*
 # Etsy OAuth tokens (persisted by the integration layer). Contains
 # access/refresh tokens; treat as a secret.
 backend/data/etsy_tokens.json
+backend/data/etsy_oauth_state.json

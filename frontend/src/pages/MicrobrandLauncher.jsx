@@ -20,6 +20,7 @@ import {
   approveArtworkAsset,
   resolveDownloadUrl
 } from "../services/api";
+import { IntegrationModePill, inferArtworkImageMode } from "../utils/integrationMode";
 
 const WORKFLOW_STEPS = [
   { key: "product", label: "Product idea created" },
@@ -554,16 +555,28 @@ const MicrobrandLauncher = ({ onOpenDashboard }) => {
           >
             <div
               style={{
-                fontFamily: "var(--font-display)",
-                fontSize: "12px",
-                fontWeight: 800,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: "var(--accent)",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                flexWrap: "wrap",
                 marginBottom: "8px"
               }}
             >
-              Artwork Review
+              <div
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontSize: "12px",
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "var(--accent)"
+                }}
+              >
+                Artwork Review
+              </div>
+              {result && inferArtworkImageMode(result) && (
+                <IntegrationModePill mode={inferArtworkImageMode(result)} />
+              )}
             </div>
             <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "14px", lineHeight: 1.5 }}>
               Generate artwork from your prepared brief, preview it here, then approve when you&apos;re happy.

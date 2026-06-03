@@ -22,7 +22,6 @@ const {
 
 // Import our service files
 const { generateProductContent }    = require("../services/aiService");
-const { createEtsyDraftListing }    = require("../services/etsyService");
 // NEW: Digital product generator — no AI API required, fully template-based
 const { generateDigitalProduct }    = require("../services/digitalProductService");
 const {
@@ -967,7 +966,9 @@ router.post("/:id/reject", (req, res) => {
 
 // ============================================================
 // POST /api/products/:id/create-etsy-draft
-// Simulates (or actually creates) an Etsy draft listing
+// Always creates a simulated Etsy draft (mock) via the integration
+// layer — never calls the live Etsy API, even when configured.
+// Use create-real-etsy-draft for live mode when ENABLE_REAL_ETSY=true.
 // ============================================================
 router.post("/:id/create-etsy-draft", async (req, res) => {
   try {
@@ -977,7 +978,6 @@ router.post("/:id/create-etsy-draft", async (req, res) => {
       return res.status(404).json({ success: false, message: "Product not found" });
     }
 
-    // Must be approved before creating an Etsy draft
     if (product.status !== "approved") {
       return res.status(400).json({
         success: false,
@@ -985,7 +985,6 @@ router.post("/:id/create-etsy-draft", async (req, res) => {
       });
     }
 
-    // Must have AI-generated listing data
     if (!product.aiData) {
       return res.status(400).json({
         success: false,
@@ -993,12 +992,16 @@ router.post("/:id/create-etsy-draft", async (req, res) => {
       });
     }
 
-    console.log(`🛍️  Creating Etsy draft for: "${product.title}"`);
+    console.log(`🛍️  Creating simulated Etsy draft (mock) for: "${product.title}"`);
 
-    // Call our Etsy service (real or mock depending on credentials)
-    const etsyDraft = await createEtsyDraftListing(product, product.aiData);
+    const etsyDraft = await etsyIntegration.createDraftListing({
+      product,
+      listingData: product.listingData,
+      aiData: product.aiData,
+      printifyProduct: product.printifyProduct,
+      forceMock: true
+    });
 
-    // Save the Etsy draft info to our product
     const updatedProduct = updateProduct(req.params.id, {
       etsyDraft,
       status: "etsy_draft_created"
