@@ -209,10 +209,10 @@ function buildPrintifyPreview(product, concept, podPrep, listingData, designPack
         title: `${color} / ${size}`
       }))
   );
-  const previewVariantIds = variants.slice(0, 6).map((v) => v.id);
+  const selectedVariantIds = variants.map((v) => v.id);
   const printAreas = [
     {
-      variant_ids: previewVariantIds,
+      variant_ids: selectedVariantIds,
       placeholders: buildPrintAreaPlaceholders({
         position: "front",
         concept,
@@ -225,7 +225,7 @@ function buildPrintifyPreview(product, concept, podPrep, listingData, designPack
   const wantsBackPrint = Boolean(apparelPackage?.printAreas?.back || apparelPackage?.backImagePrompt);
   if (isApparelShape(shape) && wantsBackPrint) {
     printAreas.push({
-      variant_ids: previewVariantIds,
+      variant_ids: selectedVariantIds,
       placeholders: buildPrintAreaPlaceholders({
         position: "back",
         concept,

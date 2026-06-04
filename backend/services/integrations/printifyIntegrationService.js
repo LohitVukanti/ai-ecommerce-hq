@@ -149,31 +149,76 @@ function normalizePrintifyVariantIds(apiPayload) {
   }));
 
   if (Array.isArray(next.print_areas)) {
+    const selectedVariantIds = next.variants.map((variant) => toPrintifyVariantId(variant.id));
     next.print_areas = next.print_areas.map((area) => ({
       ...area,
-      variant_ids: Array.isArray(area.variant_ids)
-        ? area.variant_ids.map(toPrintifyVariantId)
-        : []
+      variant_ids: selectedVariantIds.slice()
     }));
   }
 
   return next;
 }
 
+function getPrintAreaPosition(area) {
+  return (area.placeholders || []).map((ph) => ph.position).filter(Boolean).join(",") || "unknown";
+}
+
+function getPrintAreaVariantDiffs(apiPayload) {
+  const variantIds = (apiPayload.variants || []).map((v) => toPrintifyVariantId(v.id));
+  const variantSet = new Set(variantIds);
+  const areas = (apiPayload.print_areas || []).map((area, index) => {
+    const areaIds = Array.isArray(area.variant_ids)
+      ? area.variant_ids.map(toPrintifyVariantId)
+      : [];
+    const areaSet = new Set(areaIds);
+    return {
+      index,
+      position: getPrintAreaPosition(area),
+      variant_ids: areaIds,
+      missingIds: variantIds.filter((id) => !areaSet.has(id)),
+      extraIds: areaIds.filter((id) => !variantSet.has(id))
+    };
+  });
+  return { variantIds, areas };
+}
+
+function validatePrintAreaVariantCoverage(apiPayload) {
+  const { variantIds, areas } = getPrintAreaVariantDiffs(apiPayload);
+  if (!variantIds.length) {
+    throw new Error("Printify payload must include at least one selected variant.");
+  }
+  if (!areas.length) {
+    throw new Error("Printify payload must include at least one print area.");
+  }
+
+  const mismatched = areas.filter((area) => area.missingIds.length > 0 || area.extraIds.length > 0);
+  if (mismatched.length > 0) {
+    const detail = mismatched
+      .map((area) =>
+        `${area.position || `print_area_${area.index}`}: missing [${area.missingIds.join(", ")}], extra [${area.extraIds.join(", ")}]`
+      )
+      .join("; ");
+    throw new Error(
+      `Printify variant coverage mismatch before POST. Every print_area.variant_ids must exactly match variants[].id. ${detail}`
+    );
+  }
+}
+
 function logPrintifyPayloadIdTypes(apiPayload) {
-  const variantSample = (apiPayload.variants || []).slice(0, 6).map((v) => ({
-    id: v.id,
-    type: typeof v.id
-  }));
-  const printAreaSample = (apiPayload.print_areas || []).slice(0, 2).map((area) => ({
-    position: (area.placeholders || []).map((ph) => ph.position).filter(Boolean).join(",") || "unknown",
-    variant_ids: (area.variant_ids || []).slice(0, 6).map((id) => ({ id, type: typeof id }))
-  }));
+  const { variantIds, areas } = getPrintAreaVariantDiffs(apiPayload);
   console.log("🛍️  Printify payload id check:", {
     blueprint_id: apiPayload.blueprint_id,
     print_provider_id: apiPayload.print_provider_id,
-    variants: variantSample,
-    printAreaVariantIds: printAreaSample
+    variantIds,
+    variantIdTypes: variantIds.map((id) => typeof id),
+    printAreas: areas.map((area) => ({
+      index: area.index,
+      position: area.position,
+      variant_ids: area.variant_ids,
+      variantIdTypes: area.variant_ids.map((id) => typeof id),
+      missingIds: area.missingIds,
+      extraIds: area.extraIds
+    }))
   });
 }
 
@@ -317,6 +362,7 @@ async function createProductDraft({
   liveBody.publish = false;
 
   const shopId = process.env.PRINTIFY_SHOP_ID;
+  validatePrintAreaVariantCoverage(liveBody);
   logPrintifyPayloadIdTypes(liveBody);
   console.log(`🛍️  Printify: creating product DRAFT in shop ${shopId} …`);
   const created = await printifyFetch(`/v1/shops/${shopId}/products.json`, {
@@ -360,6 +406,8 @@ module.exports = {
   uploadImage,
   toPrintifyVariantId,
   normalizePrintifyVariantIds,
+  validatePrintAreaVariantCoverage,
+  getPrintAreaVariantDiffs,
   substitutePlaceholderImageIds,
   buildMockStub
 };
