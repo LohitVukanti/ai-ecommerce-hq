@@ -76,6 +76,64 @@ const Field = ({ label, value, mono }) => (
   </div>
 );
 
+function getArtworkByRole(product, role) {
+  const items = Array.isArray(product?.artworkAssets?.items) ? product.artworkAssets.items : [];
+  const item = items.find((it) => it.artworkRole === role || it.printArea === role);
+  if (!item) return null;
+  return {
+    ...item,
+    url: resolveDownloadUrl(item.previewUrl || item.fileUrl)
+  };
+}
+
+const ArtworkTile = ({ label, item }) => (
+  <div style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+    <div style={{ padding: "8px 10px", fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-display)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+      {label}
+    </div>
+    <div style={{ height: "150px", display: "flex", alignItems: "center", justifyContent: "center", borderTop: "1px solid var(--border)", background: "var(--bg-secondary)" }}>
+      {item?.url ? (
+        <img src={item.url} alt={label} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+      ) : (
+        <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>Not generated</span>
+      )}
+    </div>
+    {item?.status && (
+      <div style={{ padding: "7px 10px", fontSize: "11px", color: "var(--text-muted)", borderTop: "1px solid var(--border)" }}>
+        {item.status}
+      </div>
+    )}
+  </div>
+);
+
+const ApparelPackageReview = ({ product }) => {
+  const pkg = product?.aiData?.apparelPackage;
+  if (!pkg) return null;
+  const front = getArtworkByRole(product, "front");
+  const back = getArtworkByRole(product, "back");
+  const mockup = getArtworkByRole(product, "mockup");
+  return (
+    <Section title="Saved Apparel Package" icon="👕" accent>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px", marginBottom: "14px" }}>
+        <ArtworkTile label="Front Artwork" item={front} />
+        <ArtworkTile label="Back Artwork" item={back} />
+        <ArtworkTile label="Mockup Preview" item={mockup} />
+      </div>
+      <Field label="Product Concept" value={pkg.productConcept || product.title} />
+      <Field label="Style Direction" value={pkg.styleDirection || "—"} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px" }}>
+        <Field label="Front Design Brief" value={pkg.frontDesignBrief || "—"} mono />
+        <Field label="Back Design Brief" value={pkg.backDesignBrief || "—"} mono />
+      </div>
+      <Field
+        label="Print Areas"
+        value={JSON.stringify(pkg.printAreas || {}, null, 2)}
+        mono
+      />
+    </Section>
+  );
+};
+
 // Helper: Action button
 const ActionButton = ({ onClick, disabled, loading, icon, label, variant = "primary" }) => {
   const styles = {
@@ -360,6 +418,8 @@ const ProductDetailModal = ({ product: initialProduct, onClose, onProductUpdated
         <div style={{ padding: "24px 28px" }}>
 
           <LaunchChecklist product={product} />
+
+          <ApparelPackageReview product={product} />
 
           <PodConceptStudio
             product={product}

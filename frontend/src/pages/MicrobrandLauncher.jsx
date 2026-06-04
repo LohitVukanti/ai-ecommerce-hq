@@ -14,7 +14,8 @@ import {
   fetchIntegrationStatus,
   findLaunchOpportunities,
   resolveDownloadUrl,
-  runLaunchWorkflow
+  runLaunchWorkflow,
+  saveProductDraft
 } from "../services/api";
 import {
   inferArtworkImageMode,
@@ -35,6 +36,7 @@ const PROGRESS_LABELS = [
   "Generating Concepts",
   "Building Listing",
   "Preparing POD",
+  "Creating Apparel Package",
   "Preparing Artwork",
   "Generating Image",
   "Preparing Printify Product",
@@ -160,6 +162,16 @@ function getPrimaryImage(product) {
   return {
     ...primary,
     url: resolveDownloadUrl(primary.previewUrl || primary.fileUrl)
+  };
+}
+
+function getArtworkByRole(product, role) {
+  const items = Array.isArray(product?.artworkAssets?.items) ? product.artworkAssets.items : [];
+  const item = items.find((it) => it.artworkRole === role || it.printArea === role);
+  if (!item) return null;
+  return {
+    ...item,
+    url: resolveDownloadUrl(item.previewUrl || item.fileUrl)
   };
 }
 
@@ -386,6 +398,10 @@ const MicrobrandLauncher = ({ onOpenDashboard }) => {
   const product = launchResult?.product || null;
   const selectedConcept = getSelectedConcept(product);
   const image = getPrimaryImage(product);
+  const frontArtwork = getArtworkByRole(product, "front") || image;
+  const backArtwork = getArtworkByRole(product, "back");
+  const mockupArtwork = getArtworkByRole(product, "mockup");
+  const apparelPackage = product?.aiData?.apparelPackage || null;
   const listing = product?.listingData || product?.aiData?.launchEtsyDraftData || product?.aiData || {};
   const fallbackActive =
     opportunityMeta?.fallbackNotice ||
@@ -467,13 +483,45 @@ const MicrobrandLauncher = ({ onOpenDashboard }) => {
     }
   };
 
-  const approvePrimaryArtwork = async () => {
-    if (!product?.id || !image?.id) return;
+  const approveReviewArtwork = async () => {
+    if (!product?.id) return;
+    const targets = [frontArtwork, backArtwork].filter((item) => item?.id && item.status !== "approved");
+    if (!targets.length && image?.id && image.status !== "approved") targets.push(image);
+    if (!targets.length) return;
+
+    setActionBusy("approveArtwork");
+    setError(null);
+    setActionMessage(null);
+    try {
+      let updated = product;
+      for (const target of targets) {
+        updated = await approveArtworkAsset(updated.id, target.id);
+      }
+      setLaunchResult((prev) => ({ ...(prev || {}), product: updated }));
+      setActionMessage("Front/back artwork approved for Printify review.");
+    } catch (err) {
+      setError(err.message || "Could not approve artwork.");
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const saveDraft = async () => {
     await runReviewAction(
-      "approveArtwork",
-      (id) => approveArtworkAsset(id, image.id),
-      "Artwork approved for Printify review."
+      "saveDraft",
+      saveProductDraft,
+      "Product draft saved. It will appear in Advanced Dashboard."
     );
+  };
+
+  const needsArtworkApproval = [frontArtwork, backArtwork].some(
+    (item) => item?.id && item.status !== "approved"
+  ) || (image?.id && image.status !== "approved");
+
+  const isSavedDraft = Boolean(product?.aiData?.savedDraftAt || apparelPackage?.status === "saved");
+
+  const approvePrimaryArtwork = async () => {
+    await approveReviewArtwork();
   };
 
   const printifyStatus = product?.printifyProduct
@@ -688,33 +736,27 @@ const MicrobrandLauncher = ({ onOpenDashboard }) => {
               </h2>
 
               <div style={{ display: "grid", gap: "14px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: "16px", alignItems: "start" }}>
-                  <div
-                    style={{
-                      minHeight: "180px",
-                      background: "var(--bg-primary)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "var(--radius-sm)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden"
-                    }}
-                  >
-                    {image?.url ? (
-                      <img src={image.url} alt={product.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    ) : (
-                      <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>No image yet</span>
-                    )}
+                <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: "16px", alignItems: "start" }}>
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    <ArtworkPreview label="Front Artwork" item={frontArtwork} />
+                    <ArtworkPreview label="Back Artwork" item={backArtwork} />
+                    <ArtworkPreview label="Mockup Preview" item={mockupArtwork} />
                   </div>
-
                   <div>
                     <ReviewField label="Product Name" value={product.title} />
                     <ReviewField label="Opportunity Score" value={getOpportunityScore(product)} />
                     <ReviewField label="Target Customer" value={getTargetCustomer(product)} />
+                    {apparelPackage && <ReviewField label="Recommended Product" value={`${apparelPackage.recommendedProduct?.blank || "Apparel blank"} · ${(apparelPackage.recommendedProduct?.colors || []).join(", ")}`} />}
                     {selectedConcept && <ReviewField label="Recommended Concept" value={selectedConcept.conceptName} />}
                   </div>
                 </div>
+
+                {apparelPackage && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                    <ReviewField label="Front Design Brief" value={apparelPackage.frontDesignBrief} pre />
+                    <ReviewField label="Back Design Brief" value={apparelPackage.backDesignBrief} pre />
+                  </div>
+                )}
 
                 <ReviewField label="Etsy Title" value={listing.etsyTitle || product.title} />
                 <ReviewField label="Etsy Description" value={listing.etsyDescription || product.description} pre />
@@ -755,14 +797,22 @@ const MicrobrandLauncher = ({ onOpenDashboard }) => {
                   Create drafts only after review. Nothing is automatically published.
                 </p>
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                  {image?.id && image.status !== "approved" && (
+                  <button
+                    type="button"
+                    disabled={!!actionBusy || isSavedDraft}
+                    onClick={saveDraft}
+                    style={buttonStyle("secondary")}
+                  >
+                    {actionBusy === "saveDraft" ? "Saving..." : isSavedDraft ? "Product Draft Saved" : "Save Product Draft"}
+                  </button>
+                  {needsArtworkApproval && (
                     <button
                       type="button"
                       disabled={!!actionBusy}
                       onClick={approvePrimaryArtwork}
                       style={buttonStyle("secondary")}
                     >
-                      {actionBusy === "approveArtwork" ? "Approving..." : "Approve Artwork"}
+                      {actionBusy === "approveArtwork" ? "Approving..." : "Approve Front/Back Artwork"}
                     </button>
                   )}
                   <button
@@ -835,6 +885,44 @@ function ReviewField({ label, value, pre }) {
       >
         {value || "Not available"}
       </div>
+    </div>
+  );
+}
+
+function ArtworkPreview({ label, item }) {
+  return (
+    <div
+      style={{
+        background: "var(--bg-primary)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        overflow: "hidden"
+      }}
+    >
+      <div style={{ ...labelStyle, padding: "8px 10px", marginBottom: 0 }}>
+        {label}
+      </div>
+      <div
+        style={{
+          height: "120px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          borderTop: "1px solid var(--border)",
+          background: "var(--bg-secondary)"
+        }}
+      >
+        {item?.url ? (
+          <img src={item.url} alt={label} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+        ) : (
+          <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>Not generated</span>
+        )}
+      </div>
+      {item?.status && (
+        <div style={{ padding: "6px 10px", fontSize: "11px", color: "var(--text-muted)", borderTop: "1px solid var(--border)" }}>
+          {item.status}
+        </div>
+      )}
     </div>
   );
 }

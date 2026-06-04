@@ -945,6 +945,43 @@ router.post("/:id/approve", (req, res) => {
 });
 
 // ============================================================
+// POST /api/products/:id/save-draft
+// Explicitly marks a generated launch product/design as saved.
+// Products are already persisted on creation; this adds a clear
+// user-facing save action without introducing a parallel store.
+// ============================================================
+router.post("/:id/save-draft", (req, res) => {
+  try {
+    const product = getProductById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    const now = new Date().toISOString();
+    const updatedProduct = updateProduct(req.params.id, {
+      status: product.status || "listing_generated",
+      aiData: {
+        ...(product.aiData || {}),
+        savedDraftAt: now,
+        apparelPackage: product.aiData?.apparelPackage
+          ? {
+              ...product.aiData.apparelPackage,
+              status: "saved",
+              updatedAt: now
+            }
+          : product.aiData?.apparelPackage
+      }
+    });
+
+    res.json({ success: true, data: updatedProduct });
+  } catch (error) {
+    console.error("Error saving product draft:", error);
+    res.status(500).json({ success: false, message: "Failed to save product draft" });
+  }
+});
+
+// ============================================================
 // POST /api/products/:id/reject
 // Marks a product as rejected
 // ============================================================
@@ -1165,11 +1202,15 @@ router.post("/:id/create-printify-product", async (req, res) => {
     const mode = printifyIntegration.getMode();
     let primaryArtworkAbsolutePath = null;
     let primaryArtworkOriginalName = null;
+    let printAreaArtwork = null;
 
     if (mode === "live") {
       // Live mode: require an APPROVED primary artwork item.
       const items = getItems(product.artworkAssets);
       const primary = items.find((it) => it.isPrimary === true);
+      const approvedItems = items.filter((it) => it.status === "approved");
+      const approvedFront = approvedItems.find((it) => it.printArea === "front" || it.artworkRole === "front");
+      const approvedBack = approvedItems.find((it) => it.printArea === "back" || it.artworkRole === "back");
       if (!primary) {
         return res.status(400).json({
           success: false,
@@ -1191,13 +1232,29 @@ router.post("/:id/create-printify-product", async (req, res) => {
       }
       primaryArtworkAbsolutePath = diskPath;
       primaryArtworkOriginalName = primary.originalFileName || primary.fileName;
+
+      const resolveApproved = (item) => {
+        if (!item) return null;
+        const p = resolveArtworkDiskPath(item);
+        if (!p) return null;
+        return {
+          absolutePath: p,
+          originalName: item.originalFileName || item.fileName,
+          assetId: item.id
+        };
+      };
+      printAreaArtwork = {
+        front: resolveApproved(approvedFront) || resolveApproved(primary),
+        back: resolveApproved(approvedBack)
+      };
     }
 
     console.log(`🛍️  Creating Printify product (${mode}) for product ${req.params.id}`);
     const printifyProduct = await printifyIntegration.createProductDraft({
       apiPayload: preview.apiPayloadPreview,
       primaryArtworkAbsolutePath,
-      primaryArtworkOriginalName
+      primaryArtworkOriginalName,
+      printAreaArtwork
     });
 
     const updatedProduct = updateProduct(req.params.id, { printifyProduct });

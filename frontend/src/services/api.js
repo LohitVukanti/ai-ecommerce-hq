@@ -192,6 +192,7 @@ export const fetchProduct = (id) => request("GET", `/products/${id}`);
 export const createProduct = (productData) => request("POST", "/products", productData);
 export const generateAI = (id) => request("POST", `/products/${id}/generate-ai`);
 export const approveProduct = (id) => request("POST", `/products/${id}/approve`);
+export const saveProductDraft = (id) => request("POST", `/products/${id}/save-draft`);
 export const rejectProduct = (id) => request("POST", `/products/${id}/reject`);
 export const createEtsyDraft = (id) => request("POST", `/products/${id}/create-etsy-draft`);
 export const deleteProduct = (id) => request("DELETE", `/products/${id}`);

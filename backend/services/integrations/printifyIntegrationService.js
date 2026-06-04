@@ -130,6 +130,53 @@ async function uploadImage(filePath, displayFileName) {
   return printifyFetch("/v1/uploads/images.json", { method: "POST", body });
 }
 
+function toPrintifyVariantId(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || String(parsed) !== String(value).trim()) {
+    throw new Error(`Invalid Printify variant id: ${value}`);
+  }
+  return parsed;
+}
+
+function normalizePrintifyVariantIds(apiPayload) {
+  const next = JSON.parse(JSON.stringify(apiPayload || {}));
+  if (!Array.isArray(next.variants)) {
+    throw new Error("Printify payload must include variants[]");
+  }
+  next.variants = next.variants.map((variant) => ({
+    ...variant,
+    id: toPrintifyVariantId(variant.id)
+  }));
+
+  if (Array.isArray(next.print_areas)) {
+    next.print_areas = next.print_areas.map((area) => ({
+      ...area,
+      variant_ids: Array.isArray(area.variant_ids)
+        ? area.variant_ids.map(toPrintifyVariantId)
+        : []
+    }));
+  }
+
+  return next;
+}
+
+function logPrintifyPayloadIdTypes(apiPayload) {
+  const variantSample = (apiPayload.variants || []).slice(0, 6).map((v) => ({
+    id: v.id,
+    type: typeof v.id
+  }));
+  const printAreaSample = (apiPayload.print_areas || []).slice(0, 2).map((area) => ({
+    position: (area.placeholders || []).map((ph) => ph.position).filter(Boolean).join(",") || "unknown",
+    variant_ids: (area.variant_ids || []).slice(0, 6).map((id) => ({ id, type: typeof id }))
+  }));
+  console.log("🛍️  Printify payload id check:", {
+    blueprint_id: apiPayload.blueprint_id,
+    print_provider_id: apiPayload.print_provider_id,
+    variants: variantSample,
+    printAreaVariantIds: printAreaSample
+  });
+}
+
 /**
  * Replace every placeholder image_id in apiPayloadPreview.print_areas
  * with the freshly uploaded Printify image_id. Returns a new payload.
@@ -144,16 +191,21 @@ async function uploadImage(filePath, displayFileName) {
  *   }]
  * We swap every image id (regardless of name) to the real upload id.
  */
-function substitutePlaceholderImageIds(apiPayload, uploadedImageId) {
+function substitutePlaceholderImageIds(apiPayload, uploadedImageId, uploadedImagesByPosition = null) {
   const next = JSON.parse(JSON.stringify(apiPayload || {}));
   if (Array.isArray(next.print_areas)) {
     for (const area of next.print_areas) {
       if (Array.isArray(area.placeholders)) {
         for (const ph of area.placeholders) {
+          const position = ph.position || "front";
+          const replacement =
+            uploadedImagesByPosition && uploadedImagesByPosition[position]
+              ? uploadedImagesByPosition[position].id
+              : uploadedImageId;
           if (Array.isArray(ph.images)) {
             ph.images = ph.images.map((img) => ({
               ...img,
-              id: uploadedImageId
+              id: replacement
             }));
           }
         }
@@ -195,12 +247,18 @@ function buildMockStub(apiPayload, reason) {
  *
  * @param {object} input
  * @param {object} input.apiPayload      — printifyPreview.apiPayloadPreview
- * @param {string} input.primaryArtworkAbsolutePath — absolute path to the file on disk (live mode only)
+ * @param {string} input.primaryArtworkAbsolutePath — absolute path to the fallback/front file on disk (live mode only)
  * @param {string} input.primaryArtworkOriginalName — original file name (for display in Printify)
+ * @param {object} input.printAreaArtwork — optional map { front, back } of approved artwork files
  *
  * Returns the persisted summary that goes into product.printifyProduct.
  */
-async function createProductDraft({ apiPayload, primaryArtworkAbsolutePath, primaryArtworkOriginalName }) {
+async function createProductDraft({
+  apiPayload,
+  primaryArtworkAbsolutePath,
+  primaryArtworkOriginalName,
+  printAreaArtwork
+}) {
   if (!isConfigured()) {
     let reason = "live_disabled";
     if (!hasToken()) reason = "missing_token";
@@ -215,18 +273,51 @@ async function createProductDraft({ apiPayload, primaryArtworkAbsolutePath, prim
     throw new Error("Approved primary artwork is required for live Printify product creation");
   }
 
-  console.log("🛍️  Printify: uploading artwork to /v1/uploads/images.json …");
-  const upload = await uploadImage(primaryArtworkAbsolutePath, primaryArtworkOriginalName);
-  const uploadedImageId = upload && upload.id;
-  if (!uploadedImageId) {
-    throw new Error("Printify upload returned no image id");
+  const normalizedPayload = normalizePrintifyVariantIds(apiPayload);
+
+  const hasBackPrintArea = (normalizedPayload.print_areas || []).some((area) =>
+    (area.placeholders || []).some((ph) => ph.position === "back")
+  );
+  if (hasBackPrintArea && !(printAreaArtwork && printAreaArtwork.back)) {
+    throw new Error(
+      "Printify payload includes a back print area, but no approved back artwork is available. Approve back artwork first or regenerate a front-only preview."
+    );
   }
 
-  const liveBody = substitutePlaceholderImageIds(apiPayload, uploadedImageId);
+  const artworkByPosition = {
+    ...(printAreaArtwork || {}),
+    front: (printAreaArtwork && printAreaArtwork.front) || {
+      absolutePath: primaryArtworkAbsolutePath,
+      originalName: primaryArtworkOriginalName
+    }
+  };
+
+  console.log("🛍️  Printify: uploading artwork to /v1/uploads/images.json …");
+  const uploadedImagesByPosition = {};
+  for (const [position, art] of Object.entries(artworkByPosition)) {
+    if (!art || !art.absolutePath) continue;
+    const upload = await uploadImage(art.absolutePath, art.originalName);
+    if (!upload || !upload.id) {
+      throw new Error(`Printify upload returned no image id for ${position} artwork`);
+    }
+    uploadedImagesByPosition[position] = upload;
+  }
+
+  const uploadedImageId = uploadedImagesByPosition.front?.id || Object.values(uploadedImagesByPosition)[0]?.id;
+  if (!uploadedImageId) {
+    throw new Error("No artwork images were uploaded to Printify");
+  }
+
+  const liveBody = substitutePlaceholderImageIds(
+    normalizedPayload,
+    uploadedImageId,
+    uploadedImagesByPosition
+  );
   // ALWAYS force draft state; never publish automatically.
   liveBody.publish = false;
 
   const shopId = process.env.PRINTIFY_SHOP_ID;
+  logPrintifyPayloadIdTypes(liveBody);
   console.log(`🛍️  Printify: creating product DRAFT in shop ${shopId} …`);
   const created = await printifyFetch(`/v1/shops/${shopId}/products.json`, {
     method: "POST",
@@ -240,7 +331,15 @@ async function createProductDraft({ apiPayload, primaryArtworkAbsolutePath, prim
     url: created.id ? `https://printify.com/app/products/${created.id}` : null,
     createdAt: new Date().toISOString(),
     isMock: false,
-    uploadedImage: { id: uploadedImageId, file_name: upload.file_name || null },
+    uploadedImage: {
+      id: uploadedImageId,
+      positions: Object.fromEntries(
+        Object.entries(uploadedImagesByPosition).map(([position, upload]) => [
+          position,
+          { id: upload.id, file_name: upload.file_name || null }
+        ])
+      )
+    },
     rawResponseSummary: {
       title: created.title || liveBody.title || null,
       blueprint_id: created.blueprint_id ?? liveBody.blueprint_id ?? null,
@@ -259,6 +358,8 @@ module.exports = {
   createProductDraft,
   // Exposed for tests / advanced callers
   uploadImage,
+  toPrintifyVariantId,
+  normalizePrintifyVariantIds,
   substitutePlaceholderImageIds,
   buildMockStub
 };

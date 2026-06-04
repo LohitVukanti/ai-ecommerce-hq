@@ -377,6 +377,188 @@ function buildPreparedEtsyDraftData(product, intent) {
   };
 }
 
+function buildTemplateApparelPackage(product, intent, concept, listingData, podPrep) {
+  const productType = safe(intent.productType || podPrep?.recommendedProductType || "t-shirt");
+  const title = safe(listingData?.etsyTitle || product.title);
+  const targetCustomer = safe(intent.targetCustomer || concept?.targetCustomer || "style-conscious apparel buyers");
+  const styleDirection = safe(concept?.aesthetic || concept?.designStyle || "clean premium casualwear");
+  const colors = uniq([
+    ...(Array.isArray(product.printifyPreview?.suggestedColors) ? product.printifyPreview.suggestedColors : []),
+    "ivory",
+    "white",
+    "navy",
+    "pepper"
+  ]).slice(0, 6);
+  const basePrompt =
+    "Original apparel artwork only. No copyrighted brands, logos, mascots, celebrity likenesses, sports-league marks, or trademark imitation. Clean wearable premium design, strong spacing, balanced composition, transparent background PNG, 300 DPI, print-ready.";
+
+  const frontDesignBrief =
+    `Small front chest design for ${title}. Use a restrained brandable mark, simple typography or abstract icon, and generous negative space. ` +
+    `Avoid generic slogans unless the original idea explicitly asks for one. Style: ${styleDirection}. Audience: ${targetCustomer}.`;
+  const backDesignBrief =
+    `Larger back design for ${title}. Build a polished apparel back graphic with hierarchy, simple typography, and one original supporting motif. ` +
+    `Keep it readable and not crowded. Style: ${styleDirection}. Audience: ${targetCustomer}.`;
+
+  return {
+    productConcept: safe(intent.originalIdea || product.title),
+    styleDirection,
+    targetCustomer,
+    frontDesignBrief,
+    backDesignBrief,
+    frontImagePrompt:
+      `${basePrompt} FRONT ARTWORK: ${frontDesignBrief} Placement: left chest or small center chest. No mockup, no shirt, transparent background only.`,
+    backImagePrompt:
+      `${basePrompt} BACK ARTWORK: ${backDesignBrief} Placement: center back, larger than front. No mockup, no shirt, transparent background only.`,
+    mockupPrompt:
+      `Premium ecommerce mockup showing front and back views of ${productType}. Use the generated front and back artwork, neutral studio lighting, clean background, realistic apparel texture. Mockup only; not print artwork.`,
+    recommendedProduct: {
+      type: productType.toLowerCase().includes("hoodie")
+        ? "hoodie"
+        : productType.toLowerCase().includes("sweat")
+          ? "sweatshirt"
+          : "t-shirt",
+      blank: productType.toLowerCase().includes("sweat")
+        ? "Gildan 18000 or equivalent"
+        : "Comfort Colors 1717 or Bella+Canvas 3001 equivalent",
+      colors
+    },
+    printAreas: {
+      front: {
+        placement: "left_chest",
+        scale: "small",
+        position: "upper_left_chest"
+      },
+      back: {
+        placement: "center_back",
+        scale: "large",
+        position: "upper_center_back"
+      }
+    },
+    productColors: colors,
+    etsyListing: {
+      title,
+      description: listingData?.etsyDescription || product.description,
+      tags: Array.isArray(listingData?.etsyTags) ? listingData.etsyTags.slice(0, 13) : [],
+      priceSuggestion: listingData?.pricingRecommendation?.suggested || podPrep?.recommendedSellingPrice || ""
+    },
+    listingTitle: title,
+    listingDescription: listingData?.etsyDescription || product.description,
+    etsyTags: Array.isArray(listingData?.etsyTags) ? listingData.etsyTags.slice(0, 13) : [],
+    priceSuggestion: listingData?.pricingRecommendation?.suggested || podPrep?.recommendedSellingPrice || null,
+    status: "draft",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function normalizeApparelPackage(raw, template) {
+  if (!raw || typeof raw !== "object") return template;
+  const product = raw.recommendedProduct || {};
+  const printAreas = raw.printAreas || {};
+  const etsyListing = raw.etsyListing || {};
+  return {
+    ...template,
+    productConcept: safe(raw.productConcept) || template.productConcept,
+    styleDirection: safe(raw.styleDirection) || template.styleDirection,
+    targetCustomer: safe(raw.targetCustomer) || template.targetCustomer,
+    frontDesignBrief: safe(raw.frontDesignBrief) || template.frontDesignBrief,
+    backDesignBrief: safe(raw.backDesignBrief) || template.backDesignBrief,
+    frontImagePrompt: safe(raw.frontImagePrompt) || template.frontImagePrompt,
+    backImagePrompt: safe(raw.backImagePrompt) || template.backImagePrompt,
+    mockupPrompt: safe(raw.mockupPrompt) || template.mockupPrompt,
+    recommendedProduct: {
+      ...template.recommendedProduct,
+      type: safe(product.type) || template.recommendedProduct.type,
+      blank: safe(product.blank) || template.recommendedProduct.blank,
+      colors: Array.isArray(product.colors) && product.colors.length
+        ? product.colors.map(safe).filter(Boolean).slice(0, 8)
+        : template.recommendedProduct.colors
+    },
+    printAreas: {
+      front: {
+        ...template.printAreas.front,
+        ...(printAreas.front && typeof printAreas.front === "object" ? printAreas.front : {})
+      },
+      back: {
+        ...template.printAreas.back,
+        ...(printAreas.back && typeof printAreas.back === "object" ? printAreas.back : {})
+      }
+    },
+    etsyListing: {
+      ...template.etsyListing,
+      title: safe(etsyListing.title) || template.etsyListing.title,
+      description: safe(etsyListing.description) || template.etsyListing.description,
+      tags: Array.isArray(etsyListing.tags) && etsyListing.tags.length
+        ? etsyListing.tags.map(safe).filter(Boolean).slice(0, 13)
+        : template.etsyListing.tags,
+      priceSuggestion: etsyListing.priceSuggestion || template.etsyListing.priceSuggestion
+    },
+    productColors: Array.isArray(raw.productColors) && raw.productColors.length
+      ? raw.productColors.map(safe).filter(Boolean).slice(0, 8)
+      : template.productColors,
+    listingTitle: safe(raw.listingTitle) || safe(etsyListing.title) || template.listingTitle,
+    listingDescription: safe(raw.listingDescription) || safe(etsyListing.description) || template.listingDescription,
+    etsyTags: Array.isArray(raw.etsyTags) && raw.etsyTags.length
+      ? raw.etsyTags.map(safe).filter(Boolean).slice(0, 13)
+      : template.etsyTags,
+    priceSuggestion: raw.priceSuggestion || etsyListing.priceSuggestion || template.priceSuggestion,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function buildApparelPackage(product, intent, concept, listingData, podPrep) {
+  const template = buildTemplateApparelPackage(product, intent, concept, listingData, podPrep);
+  const result = await generateJsonWithOpenAI({
+    traceLabel: "apparel front/back package",
+    temperature: 0.55,
+    maxTokens: 1800,
+    system:
+      "You are an expert apparel product designer for Etsy and Printify. Return one valid JSON object only. Never copy brands, logos, mascots, celebrities, or trademarks.",
+    user:
+      "Create a structured front/back apparel product package. Follow these rules: avoid generic slogans unless the user asked for slogans; use clean brandable layouts; front should be simpler than back; front is usually small chest; back is larger; artwork prompts must request transparent PNG print artwork, not mockups. Use this exact schema: productConcept, styleDirection, targetCustomer, frontDesignBrief, backDesignBrief, frontImagePrompt, backImagePrompt, mockupPrompt, recommendedProduct { type, blank, colors }, printAreas { front { placement, scale, position }, back { placement, scale, position } }, etsyListing { title, description, tags, priceSuggestion }.\n\n" +
+      JSON.stringify({ product, sourceIntent: intent, selectedConcept: concept, listingData, podPrep, template }, null, 2)
+  });
+  return normalizeApparelPackage(result.ok ? result.data : null, template);
+}
+
+async function generateArtworkAsset({ product, prompt, role, type = "generated", requestedPrimary = false }) {
+  const mode = imageGenService.getMode();
+  const imgResult = await imageGenService.generateArtworkImage({
+    prompt,
+    negativePrompt:
+      "no trademarked logos, no copyrighted characters, no brand imitation, no mockup shirt for print artwork, no busy clutter, no low resolution, no garbled text, no watermark",
+    recommendedCanvasSize: role === "mockup" ? "2000 x 2000 px" : "4500 x 5400 px @ 300 DPI",
+    transparentBackground: role !== "mockup",
+    productId: product.id
+  });
+
+  if (!fs.existsSync(ARTWORK_DIR)) fs.mkdirSync(ARTWORK_DIR, { recursive: true });
+  const tempName = `launch_${role}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${imgResult.originalFileName || `${role}.png`}`;
+  const tempPath = path.join(ARTWORK_DIR, tempName);
+  fs.writeFileSync(tempPath, imgResult.buffer);
+
+  const item = buildNewItem({
+    productId: product.id,
+    type,
+    fileName: imgResult.originalFileName || `${role}-artwork.png`,
+    mimeType: imgResult.mimeType,
+    sizeBytes: imgResult.buffer.length,
+    diskPath: tempPath,
+    sourceConceptId: product.selectedConceptId || null,
+    requestedPrimary
+  });
+  if ((item.width == null || item.height == null) && imgResult.dimensions) {
+    item.width = imgResult.dimensions.width || item.width;
+    item.height = imgResult.dimensions.height || item.height;
+  }
+  item.providerMeta = imgResult.providerMeta || null;
+  item.generationMode = imgResult.mode || mode;
+  item.artworkRole = role;
+  item.printArea = role === "back" ? "back" : role === "front" ? "front" : null;
+  item.approvalRequired = role !== "mockup";
+  return item;
+}
+
 function stepRecord(key, label, status, extra = {}) {
   return { key, label, status, ...extra };
 }
@@ -478,6 +660,25 @@ async function runLaunchPipeline(input) {
       return updateProduct(product.id, { designPackage });
     });
 
+    product = await runStep("apparelPackage", "Creating Apparel Package", async () => {
+      const concept = (product.generatedConcepts || []).find((c) => c.id === product.selectedConceptId);
+      if (!concept) throw new Error("Selected concept was not found.");
+      const apparelPackage = await buildApparelPackage(
+        product,
+        intent,
+        concept,
+        product.listingData,
+        product.podPrep
+      );
+      return updateProduct(product.id, {
+        aiData: {
+          ...(product.aiData || {}),
+          apparelPackage,
+          sourceIntent: intent
+        }
+      });
+    });
+
     product = await runStep("printifyPreview", "Generating Printify Preview", () => {
       const concept = (product.generatedConcepts || []).find((c) => c.id === product.selectedConceptId);
       if (!concept) throw new Error("Selected concept was not found.");
@@ -512,42 +713,48 @@ async function runLaunchPipeline(input) {
 
     product = await runStep("image", "Generating Image", async () => {
       const artworkAssets = product.artworkAssets;
-      if (!artworkAssets?.artworkPrompt) throw new Error("Artwork prompt was not prepared.");
-      const mode = imageGenService.getMode();
-      const imgResult = await imageGenService.generateArtworkImage({
-        prompt: artworkAssets.artworkPrompt,
-        negativePrompt: artworkAssets.negativePrompt || "",
-        recommendedCanvasSize: artworkAssets.recommendedCanvasSize || "",
-        transparentBackground: Boolean(artworkAssets.transparentBackgroundRequired),
-        productId: product.id
-      });
+      const apparelPackage = product.aiData?.apparelPackage;
+      if (!artworkAssets?.artworkPrompt && !apparelPackage?.frontImagePrompt) {
+        throw new Error("Artwork prompt was not prepared.");
+      }
 
-      if (!fs.existsSync(ARTWORK_DIR)) fs.mkdirSync(ARTWORK_DIR, { recursive: true });
-      const tempName = `launch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${imgResult.originalFileName || "artwork.png"}`;
-      const tempPath = path.join(ARTWORK_DIR, tempName);
-      fs.writeFileSync(tempPath, imgResult.buffer);
-
-      const item = buildNewItem({
-        productId: product.id,
-        type: "generated",
-        fileName: imgResult.originalFileName || "artwork.png",
-        mimeType: imgResult.mimeType,
-        sizeBytes: imgResult.buffer.length,
-        diskPath: tempPath,
-        sourceConceptId: product.selectedConceptId || null,
+      const frontItem = await generateArtworkAsset({
+        product,
+        prompt: apparelPackage?.frontImagePrompt || artworkAssets.artworkPrompt,
+        role: "front",
         requestedPrimary: true
       });
-      if ((item.width == null || item.height == null) && imgResult.dimensions) {
-        item.width = imgResult.dimensions.width || item.width;
-        item.height = imgResult.dimensions.height || item.height;
-      }
-      item.providerMeta = imgResult.providerMeta || null;
-      item.generationMode = imgResult.mode || mode;
+      const backItem = await generateArtworkAsset({
+        product,
+        prompt: apparelPackage?.backImagePrompt || artworkAssets.artworkPrompt,
+        role: "back"
+      });
+      const mockupItem = await generateArtworkAsset({
+        product,
+        prompt: apparelPackage?.mockupPrompt || `${product.title} front and back shirt mockup`,
+        role: "mockup",
+        type: "mockup"
+      });
 
-      const nextArtwork = addItem(artworkAssets, item);
+      let nextArtwork = addItem(artworkAssets, frontItem);
+      nextArtwork = addItem(nextArtwork, backItem);
+      nextArtwork = addItem(nextArtwork, mockupItem);
+      const nextApparelPackage = {
+        ...(apparelPackage || {}),
+        frontArtworkUrl: frontItem.fileUrl,
+        backArtworkUrl: backItem.fileUrl,
+        mockupUrl: mockupItem.fileUrl,
+        status: "generated",
+        updatedAt: new Date().toISOString()
+      };
       return updateProduct(product.id, {
         artworkAssets: nextArtwork,
-        artworkStatus: deriveArtworkStatus(nextArtwork)
+        artworkStatus: deriveArtworkStatus(nextArtwork),
+        aiData: {
+          ...(product.aiData || {}),
+          apparelPackage: nextApparelPackage,
+          sourceIntent: intent
+        }
       });
     });
 

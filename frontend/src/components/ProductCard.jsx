@@ -8,6 +8,7 @@
 import React from "react";
 import StatusBadge from "./StatusBadge";
 import { getNextActionShortLabel, getNextAction } from "../utils/launchProgress";
+import { resolveDownloadUrl } from "../services/api";
 
 const NEXT_TONE = {
   concepts: "var(--purple)",
@@ -35,6 +36,7 @@ const ProductCard = ({ product, onClick }) => {
   const nextLabel = getNextActionShortLabel(product);
   const nextKey = getNextAction(product).key;
   const nextColor = NEXT_TONE[nextKey] || "var(--accent)";
+  const thumbnail = getProductThumbnail(product);
 
   return (
     <div
@@ -73,6 +75,28 @@ const ProductCard = ({ product, onClick }) => {
           ? "var(--success)"
           : "var(--border)"
       }} />
+
+      {thumbnail && (
+        <div
+          style={{
+            height: "132px",
+            margin: "0 0 14px",
+            borderRadius: "var(--radius-sm)",
+            border: "1px solid var(--border)",
+            background: "var(--bg-primary)",
+            overflow: "hidden",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center"
+          }}
+        >
+          <img
+            src={thumbnail}
+            alt={product.title}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+          />
+        </div>
+      )}
 
       {/* Card header: status badge + category */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
@@ -170,6 +194,21 @@ const ProductCard = ({ product, onClick }) => {
     </div>
   );
 };
+
+function getProductThumbnail(product) {
+  const items = Array.isArray(product?.artworkAssets?.items) ? product.artworkAssets.items : [];
+  const item =
+    items.find((it) => it.artworkRole === "mockup") ||
+    items.find((it) => it.printArea === "front" || it.artworkRole === "front") ||
+    items.find((it) => it.isPrimary) ||
+    items[0];
+  if (item?.previewUrl || item?.fileUrl) {
+    return resolveDownloadUrl(item.previewUrl || item.fileUrl);
+  }
+  return product?.aiData?.apparelPackage?.mockupUrl
+    ? resolveDownloadUrl(product.aiData.apparelPackage.mockupUrl)
+    : null;
+}
 
 // Small score display used inside the card grid
 const MiniScore = ({ label, value, good }) => {
