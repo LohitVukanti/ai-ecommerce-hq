@@ -12,6 +12,7 @@ const fs = require("fs");
 const productRoutes = require("./routes/products");
 const ideaRoutes = require("./routes/ideas");
 const trendRoutes = require("./routes/trends");
+const launchRoutes = require("./routes/launch");
 const integrationsRoutes = require("./routes/integrations");
 const etsyRoutes = require("./routes/etsy");
 const { pingDatabase, closeDatabase } = require("./data/db");
@@ -116,6 +117,7 @@ app.use(
 app.use("/api/products", productRoutes);
 app.use("/api/ideas", ideaRoutes);
 app.use("/api/trends", trendRoutes);
+app.use("/api/launch", launchRoutes);
 app.use("/api/integrations", integrationsRoutes);
 app.use("/api/etsy", etsyRoutes);
 
@@ -175,6 +177,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`   Products API:    http://localhost:${PORT}/api/products`);
   console.log(`   Ideas API:       http://localhost:${PORT}/api/ideas`);
   console.log(`   Trends API:      http://localhost:${PORT}/api/trends`);
+  console.log(`   Launch API:      http://localhost:${PORT}/api/launch`);
   console.log(`   Integrations:    http://localhost:${PORT}/api/integrations/status`);
   console.log(`   Etsy OAuth:      http://localhost:${PORT}/api/etsy/auth/start`);
   console.log(`   Downloads:       http://localhost:${PORT}/downloads/`);

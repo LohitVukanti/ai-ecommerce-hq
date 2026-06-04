@@ -291,6 +291,14 @@ export const deleteTrendScan = (id) => request("DELETE", `/trends/${id}`);
 export const convertTrendScanToIdea = (id) =>
   request("POST", `/trends/${id}/convert-to-idea`);
 
+// ---- Launch Workflow ----
+
+export const findLaunchOpportunities = () =>
+  request("POST", "/launch/opportunities", null, { timeoutMs: 120000 });
+
+export const runLaunchWorkflow = (payload) =>
+  request("POST", "/launch/run", payload, { timeoutMs: 180000 });
+
 // ---- Integrations ----
 
 export const fetchIntegrationStatus = () => request("GET", "/integrations/status");

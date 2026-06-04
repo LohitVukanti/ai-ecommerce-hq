@@ -1,37 +1,48 @@
 // ============================================================
-// pages/MicrobrandLauncher.jsx — One-click microbrand workflow
+// pages/MicrobrandLauncher.jsx — Beginner Launch Product workflow
 // ============================================================
-// Simple intake form that runs the existing product API pipeline
-// end-to-end. Advanced pages (Dashboard, Ideas, etc.) remain
-// available via "Advanced Dashboard".
+// Simple surface over the existing advanced product pipeline.
+// Advanced Dashboard, Trend Scanner, Ideas, and Product Detail
+// remain available from the global nav.
 // ============================================================
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  createProduct,
-  generateDesignConcepts,
-  selectProductConcept,
-  generatePodListing,
-  generatePodPrep,
-  generateDesignPackage,
-  prepareArtwork,
-  generatePrintifyPreview,
-  generateArtworkImage,
   approveArtworkAsset,
-  resolveDownloadUrl
+  createPrintifyProduct,
+  createRealEtsyDraft,
+  fetchIntegrationStatus,
+  findLaunchOpportunities,
+  resolveDownloadUrl,
+  runLaunchWorkflow
 } from "../services/api";
-import { IntegrationModePill, inferArtworkImageMode } from "../utils/integrationMode";
+import {
+  inferArtworkImageMode,
+  inferEtsyDraftMode,
+  inferPrintifyProductMode
+} from "../utils/integrationMode";
 
-const WORKFLOW_STEPS = [
-  { key: "product", label: "Product idea created" },
-  { key: "concepts", label: "Design concepts generated" },
-  { key: "select", label: "Best concept selected" },
-  { key: "listing", label: "Etsy listing generated" },
-  { key: "podPrep", label: "POD prep generated" },
-  { key: "designPackage", label: "Design package generated" },
-  { key: "artwork", label: "Artwork brief prepared" },
-  { key: "printify", label: "Printify preview generated" }
+const LAUNCH_STAGES = [
+  "Find Opportunity",
+  "Build Product",
+  "Review Product",
+  "Publish Product"
 ];
+
+const PROGRESS_LABELS = [
+  "Creating Product",
+  "Generating AI Content",
+  "Generating Concepts",
+  "Building Listing",
+  "Preparing POD",
+  "Preparing Artwork",
+  "Generating Image",
+  "Preparing Printify Product",
+  "Preparing Etsy Draft",
+  "Ready For Review"
+];
+
+const FALLBACK_NOTICE = "Using fallback templates because AI generation is unavailable.";
 
 const inputStyle = {
   width: "100%",
@@ -55,822 +66,788 @@ const labelStyle = {
   marginBottom: "6px"
 };
 
-function buildProductPayload(form) {
-  const niche = form.niche.trim();
-  const productType = form.productType.trim();
-  const targetCustomer = form.targetCustomer.trim();
-  const designVibe = form.designVibe.trim();
-  const notes = form.notes.trim();
+const cardStyle = {
+  background: "var(--bg-secondary)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-md)",
+  padding: "18px"
+};
 
-  const title = [niche, productType].filter(Boolean).join(" — ") || "New microbrand product";
-  const descriptionParts = [
-    targetCustomer && `Target customer: ${targetCustomer}`,
-    designVibe && `Design vibe: ${designVibe}`,
-    notes && `Notes: ${notes}`
-  ].filter(Boolean);
-
-  return {
-    title,
-    description: descriptionParts.join("\n") || undefined,
-    category: productType || niche || undefined
-  };
-}
-
-function getLatestArtworkItem(product) {
-  const items = Array.isArray(product?.artworkAssets?.items) ? product.artworkAssets.items : [];
-  if (items.length === 0) return null;
-  const generated = items.filter((it) => it.type === "generated");
-  return generated.length > 0 ? generated[generated.length - 1] : items[items.length - 1];
-}
-
-function isImageApiKeyError(message) {
-  const m = String(message || "").toLowerCase();
-  return (
-    m.includes("api key") ||
-    m.includes("openai") ||
-    m.includes("image generation failed") ||
-    m.includes("enable_real_image") ||
-    m.includes("not connected")
-  );
-}
-
-const actionBtnStyle = (variant = "secondary") => ({
-  padding: "8px 14px",
+const buttonStyle = (variant = "secondary") => ({
+  padding: "10px 16px",
   background:
     variant === "primary"
       ? "var(--accent)"
       : variant === "success"
-        ? "var(--success-dim)"
-        : "var(--bg-tertiary)",
-  color:
-    variant === "primary"
-      ? "#0d1117"
-      : variant === "success"
         ? "var(--success)"
+        : variant === "danger"
+          ? "var(--danger-dim)"
+          : "var(--bg-tertiary)",
+  color:
+    variant === "primary" || variant === "success"
+      ? "#0d1117"
+      : variant === "danger"
+        ? "var(--danger)"
         : "var(--text-secondary)",
   border:
-    variant === "success"
-      ? "1px solid var(--success)"
-      : "1px solid var(--border)",
+    variant === "danger"
+      ? "1px solid var(--danger)"
+      : variant === "primary" || variant === "success"
+        ? "none"
+        : "1px solid var(--border)",
   borderRadius: "var(--radius-sm)",
-  fontSize: "12px",
-  fontWeight: 700,
-  cursor: "pointer",
+  fontSize: "13px",
+  fontWeight: 800,
   display: "inline-flex",
   alignItems: "center",
-  gap: "8px"
+  gap: "8px",
+  cursor: "pointer"
 });
+
+function ModeBadge({ label, mode }) {
+  const normalized = mode || "mock";
+  const styles = {
+    live: {
+      background: "rgba(46, 160, 67, 0.15)",
+      color: "#56d364",
+      border: "1px solid rgba(46, 160, 67, 0.4)"
+    },
+    preview: {
+      background: "rgba(187, 128, 9, 0.15)",
+      color: "#e3b341",
+      border: "1px solid rgba(187, 128, 9, 0.4)"
+    },
+    mock: {
+      background: "rgba(99, 110, 123, 0.18)",
+      color: "#9aa6b2",
+      border: "1px solid rgba(99, 110, 123, 0.4)"
+    }
+  };
+
+  return (
+    <span
+      style={{
+        ...(styles[normalized] || styles.mock),
+        padding: "4px 9px",
+        borderRadius: "999px",
+        fontSize: "10px",
+        fontFamily: "var(--font-display)",
+        fontWeight: 800,
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+        whiteSpace: "nowrap"
+      }}
+    >
+      {label}: {normalized}
+    </span>
+  );
+}
+
+function getProviderMode(status, key, fallback = "mock") {
+  const provider = status?.providers?.find((p) => p.key === key);
+  return provider?.mode || fallback;
+}
 
 function getSelectedConcept(product) {
   const list = Array.isArray(product?.generatedConcepts) ? product.generatedConcepts : [];
-  const id = product?.selectedConceptId;
-  if (id) return list.find((c) => c.id === id) || null;
-  return list[0] || null;
+  return list.find((c) => c.id === product?.selectedConceptId) || list[0] || null;
 }
 
-function StepIcon({ status }) {
-  if (status === "done") return <span style={{ color: "var(--success)" }}>✓</span>;
-  if (status === "active") return <span className="spinner" />;
-  if (status === "error") return <span style={{ color: "var(--danger)" }}>✕</span>;
-  return <span style={{ color: "var(--text-muted)", opacity: 0.5 }}>○</span>;
+function getPrimaryImage(product) {
+  const items = Array.isArray(product?.artworkAssets?.items) ? product.artworkAssets.items : [];
+  if (!items.length) return null;
+  const primary = items.find((item) => item.isPrimary) || items[items.length - 1];
+  return {
+    ...primary,
+    url: resolveDownloadUrl(primary.previewUrl || primary.fileUrl)
+  };
+}
+
+function getMargin(product) {
+  const preview = product?.printifyPreview;
+  if (preview?.estimatedMarginPercent != null) return `${preview.estimatedMarginPercent}%`;
+  const prep = product?.podPrep;
+  if (prep?.estimatedMarginPercent != null) return `${prep.estimatedMarginPercent}%`;
+  return "Not estimated";
+}
+
+function getPrice(product) {
+  const listing = product?.listingData;
+  const ai = product?.aiData;
+  const price =
+    listing?.pricingRecommendation?.suggested ||
+    product?.printifyPreview?.retailPrice ||
+    ai?.suggestedPrice;
+  return price ? `$${price}` : "Not set";
+}
+
+function getOpportunityScore(product) {
+  const score =
+    product?.aiData?.sourceIntent?.opportunityScore ??
+    product?.aiData?.launchEtsyDraftData?.sourceIntent?.opportunityScore;
+  return score == null ? "Manual idea" : `${score}/100`;
+}
+
+function getTargetCustomer(product) {
+  return (
+    product?.aiData?.sourceIntent?.targetCustomer ||
+    product?.aiData?.launchEtsyDraftData?.targetCustomer ||
+    product?.listingData?.audienceNotes ||
+    product?.aiData?.buyerPersona ||
+    "Not specified"
+  );
+}
+
+function statusText(value, empty) {
+  if (!value) return empty;
+  return String(value).replace(/_/g, " ");
+}
+
+function ProgressList({ steps, failedStep }) {
+  const actualByLabel = new Map((steps || []).map((step) => [step.label, step]));
+  const activeIndex = (steps || []).findIndex((step) => step.status === "active");
+
+  return (
+    <div style={{ display: "grid", gap: "8px" }}>
+      {PROGRESS_LABELS.map((label, index) => {
+        const actual = actualByLabel.get(label);
+        const done = actual?.status === "done" || label === "Ready For Review" && steps?.some((s) => s.key === "ready");
+        const failed = actual?.status === "failed" || failedStep?.label === label;
+        const active = actual?.status === "active" || (!actual && activeIndex >= 0 && index === activeIndex);
+        return (
+          <div
+            key={label}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "9px 10px",
+              background: "var(--bg-primary)",
+              border: `1px solid ${failed ? "var(--danger)" : done ? "rgba(46,160,67,0.45)" : "var(--border)"}`,
+              borderRadius: "var(--radius-sm)",
+              fontSize: "12px",
+              color: failed ? "var(--danger)" : done ? "var(--success)" : "var(--text-secondary)"
+            }}
+          >
+            {active ? (
+              <span className="spinner" />
+            ) : (
+              <span style={{ fontWeight: 900 }}>{failed ? "x" : done ? "✓" : "○"}</span>
+            )}
+            <span style={{ flex: 1 }}>{label}</span>
+            {failed && <span style={{ color: "var(--danger)" }}>Failed</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function OpportunityCard({ opportunity, selected, onSelect, onBuild, disabled }) {
+  return (
+    <div
+      style={{
+        ...cardStyle,
+        border: selected ? "2px solid var(--accent)" : "1px solid var(--border)",
+        padding: "16px"
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", marginBottom: "8px" }}>
+        <div>
+          <div style={{ fontSize: "15px", fontWeight: 900, color: "var(--text-primary)", lineHeight: 1.25 }}>
+            {opportunity.title}
+          </div>
+          <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>
+            {opportunity.niche} · {opportunity.productType}
+          </div>
+        </div>
+        <div
+          style={{
+            minWidth: "54px",
+            height: "54px",
+            borderRadius: "50%",
+            border: "2px solid var(--accent)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--accent)",
+            fontWeight: 900,
+            fontFamily: "var(--font-display)"
+          }}
+        >
+          {opportunity.opportunityScore}
+        </div>
+      </div>
+      <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5, margin: "0 0 12px" }}>
+        {opportunity.trendExplanation}
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px", marginBottom: "12px" }}>
+        <MiniMetric label="Demand" value={opportunity.demand} />
+        <MiniMetric label="Competition" value={opportunity.competition} />
+        <MiniMetric label="Profit" value={opportunity.profitPotential} />
+      </div>
+      <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "12px" }}>
+        Target: <span style={{ color: "var(--text-secondary)" }}>{opportunity.targetAudience}</span>
+      </div>
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <button type="button" onClick={onSelect} disabled={disabled} style={buttonStyle("secondary")}>
+          {selected ? "Selected" : "Select"}
+        </button>
+        <button type="button" onClick={onBuild} disabled={disabled} style={buttonStyle("primary")}>
+          Build Product From Opportunity
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }) {
+  return (
+    <div style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "8px" }}>
+      <div style={{ fontSize: "10px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 800 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: "15px", color: "var(--text-primary)", fontWeight: 900 }}>
+        {value ?? "—"}
+      </div>
+    </div>
+  );
+}
+
+function AdvancedDetails({ product, launchResult }) {
+  if (!product) return null;
+  return (
+    <details style={{ ...cardStyle, marginTop: "16px" }}>
+      <summary style={{ cursor: "pointer", fontWeight: 900, color: "var(--text-secondary)" }}>
+        Advanced Details
+      </summary>
+      <div style={{ marginTop: "14px", display: "grid", gap: "12px" }}>
+        <AdvancedJson title="Original intent and workflow steps" data={{ sourceIntent: product.aiData?.sourceIntent, steps: launchResult?.steps }} />
+        <AdvancedJson title="Concepts and selected concept" data={{ selectedConceptId: product.selectedConceptId, generatedConcepts: product.generatedConcepts }} />
+        <AdvancedJson title="Artwork prompts and assets" data={product.artworkAssets} />
+        <AdvancedJson title="Printify payload preview" data={product.printifyPreview} />
+        <AdvancedJson title="AI / Etsy draft data" data={{ aiData: product.aiData, etsyDraft: product.etsyDraft }} />
+      </div>
+    </details>
+  );
+}
+
+function AdvancedJson({ title, data }) {
+  return (
+    <details style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "12px" }}>
+      <summary style={{ cursor: "pointer", fontSize: "12px", fontWeight: 800, color: "var(--text-secondary)" }}>
+        {title}
+      </summary>
+      <pre
+        style={{
+          margin: "10px 0 0",
+          padding: "10px",
+          background: "var(--bg-secondary)",
+          borderRadius: "var(--radius-sm)",
+          border: "1px solid var(--border)",
+          maxHeight: "280px",
+          overflow: "auto",
+          color: "var(--text-muted)",
+          fontSize: "11px",
+          lineHeight: 1.5
+        }}
+      >
+        {JSON.stringify(data || null, null, 2)}
+      </pre>
+    </details>
+  );
 }
 
 const MicrobrandLauncher = ({ onOpenDashboard }) => {
-  const [form, setForm] = useState({
+  const [manualIdea, setManualIdea] = useState({
+    idea: "",
     niche: "",
-    productType: "",
+    productType: "POD apparel",
     targetCustomer: "",
-    designVibe: "",
     notes: ""
   });
-
+  const [opportunities, setOpportunities] = useState([]);
+  const [selectedOpportunity, setSelectedOpportunity] = useState(null);
+  const [opportunityLoading, setOpportunityLoading] = useState(false);
+  const [opportunityMeta, setOpportunityMeta] = useState(null);
+  const [launchResult, setLaunchResult] = useState(null);
   const [running, setRunning] = useState(false);
-  const [stepStatus, setStepStatus] = useState({});
-  const [failedStep, setFailedStep] = useState(null);
   const [error, setError] = useState(null);
-  const [result, setResult] = useState(null);
-  const [artworkBusy, setArtworkBusy] = useState(null);
-  const [artworkError, setArtworkError] = useState(null);
-  const [approvedArtwork, setApprovedArtwork] = useState(null);
+  const [actionBusy, setActionBusy] = useState(null);
+  const [actionMessage, setActionMessage] = useState(null);
+  const [integrationStatus, setIntegrationStatus] = useState(null);
 
-  const setField = (key) => (e) => setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  useEffect(() => {
+    fetchIntegrationStatus()
+      .then(setIntegrationStatus)
+      .catch(() => setIntegrationStatus(null));
+  }, []);
 
-  const resetRun = () => {
-    setStepStatus({});
-    setFailedStep(null);
-    setError(null);
-    setResult(null);
-    setArtworkBusy(null);
-    setArtworkError(null);
-    setApprovedArtwork(null);
-  };
+  const product = launchResult?.product || null;
+  const selectedConcept = getSelectedConcept(product);
+  const image = getPrimaryImage(product);
+  const listing = product?.listingData || product?.aiData?.launchEtsyDraftData || product?.aiData || {};
+  const fallbackActive =
+    opportunityMeta?.fallbackNotice ||
+    product?.aiData?.fallbackNotice ||
+    launchResult?.notices?.includes(FALLBACK_NOTICE);
 
-  const markStep = (key, status) => {
-    setStepStatus((prev) => ({ ...prev, [key]: status }));
-  };
-
-  const handleGenerate = async (e) => {
-    e.preventDefault();
-    if (running) return;
-
-    if (!form.niche.trim() || !form.productType.trim()) {
-      setError("Niche and product type are required.");
-      return;
-    }
-
-    resetRun();
-    setRunning(true);
-
-    let currentStepKey = "product";
-
-    const runStep = async (key, fn) => {
-      currentStepKey = key;
-      markStep(key, "active");
-      const out = await fn();
-      markStep(key, "done");
-      return out;
+  const modes = useMemo(() => {
+    return {
+      aiText: product?.aiData?.generationMode || opportunityMeta?.mode || getProviderMode(integrationStatus, "openai-text"),
+      image: inferArtworkImageMode(product) || getProviderMode(integrationStatus, "image-generation"),
+      printify:
+        inferPrintifyProductMode(product?.printifyProduct) ||
+        (product?.printifyPreview ? "preview" : getProviderMode(integrationStatus, "printify", "preview")),
+      etsy: inferEtsyDraftMode(product?.etsyDraft) || getProviderMode(integrationStatus, "etsy")
     };
+  }, [integrationStatus, opportunityMeta?.mode, product]);
 
+  const setManualField = (key) => (e) =>
+    setManualIdea((prev) => ({ ...prev, [key]: e.target.value }));
+
+  const loadOpportunities = async () => {
+    setOpportunityLoading(true);
+    setError(null);
+    setActionMessage(null);
     try {
-      let product = await runStep("product", () =>
-        createProduct(buildProductPayload(form))
-      );
-
-      product = await runStep("concepts", () => generateDesignConcepts(product.id));
-      const concepts = product.generatedConcepts || [];
-      if (!concepts.length) {
-        throw new Error("No design concepts were returned.");
-      }
-
-      const conceptId = concepts[0].id;
-      product = await runStep("select", () =>
-        selectProductConcept(product.id, conceptId)
-      );
-
-      product = await runStep("listing", () => generatePodListing(product.id));
-      product = await runStep("podPrep", () => generatePodPrep(product.id));
-      product = await runStep("designPackage", () => generateDesignPackage(product.id));
-      product = await runStep("artwork", () => prepareArtwork(product.id));
-      product = await runStep("printify", () => generatePrintifyPreview(product.id));
-
-      setResult(product);
+      const result = await findLaunchOpportunities();
+      setOpportunities(result.opportunities || []);
+      setOpportunityMeta(result);
+      setSelectedOpportunity((result.opportunities || [])[0] || null);
     } catch (err) {
-      const message = err.message || "Something went wrong.";
-      const failed = WORKFLOW_STEPS.find((s) => s.key === currentStepKey);
-      markStep(currentStepKey, "error");
-      setFailedStep(failed?.label || currentStepKey);
-      setError(message);
+      setError(err.message || "Could not find product opportunities.");
+    } finally {
+      setOpportunityLoading(false);
+    }
+  };
+
+  const runLaunch = async (source) => {
+    setRunning(true);
+    setError(null);
+    setActionMessage(null);
+    try {
+      const payload =
+        source === "opportunity"
+          ? { opportunity: selectedOpportunity }
+          : { manualIdea };
+      const result = await runLaunchWorkflow(payload);
+      setLaunchResult(result);
+      if (!result.completed) {
+        setError(`${result.failedStep?.label || "Launch workflow"} failed: ${result.error}`);
+      }
+    } catch (err) {
+      setError(err.message || "Could not build product.");
     } finally {
       setRunning(false);
     }
   };
 
-  const handleGenerateArtwork = async () => {
-    if (!result?.id || artworkBusy) return;
-    setArtworkBusy("generate");
-    setArtworkError(null);
+  const retryLaunch = () => {
+    if (launchResult?.product?.aiData?.sourceIntent?.origin === "opportunity" && selectedOpportunity) {
+      runLaunch("opportunity");
+      return;
+    }
+    runLaunch(selectedOpportunity ? "opportunity" : "manual");
+  };
+
+  const runReviewAction = async (key, fn, message) => {
+    if (!product?.id) return;
+    setActionBusy(key);
+    setError(null);
+    setActionMessage(null);
     try {
-      const updated = await generateArtworkImage(result.id);
-      setResult(updated);
-      setApprovedArtwork(null);
+      const updated = await fn(product.id);
+      setLaunchResult((prev) => ({ ...(prev || {}), product: updated }));
+      setActionMessage(message);
     } catch (err) {
-      const msg = err.message || "Artwork generation failed.";
-      setArtworkError(
-        isImageApiKeyError(msg)
-          ? "Artwork generation is ready, but your image API key is not connected yet."
-          : msg
-      );
+      setError(err.message || "Action failed.");
     } finally {
-      setArtworkBusy(null);
+      setActionBusy(null);
     }
   };
 
-  const handleApproveArtwork = async () => {
-    const item = getLatestArtworkItem(result);
-    if (!result?.id || !item?.id || artworkBusy) return;
-    setArtworkBusy("approve");
-    setArtworkError(null);
-    try {
-      const updated = await approveArtworkAsset(result.id, item.id);
-      setResult(updated);
-      const approved =
-        (updated.artworkAssets?.items || []).find((it) => it.id === item.id) ||
-        { ...item, status: "approved" };
-      setApprovedArtwork(approved);
-    } catch (err) {
-      setArtworkError(err.message || "Could not approve artwork.");
-    } finally {
-      setArtworkBusy(null);
-    }
+  const approvePrimaryArtwork = async () => {
+    if (!product?.id || !image?.id) return;
+    await runReviewAction(
+      "approveArtwork",
+      (id) => approveArtworkAsset(id, image.id),
+      "Artwork approved for Printify review."
+    );
   };
 
-  const concept = result ? getSelectedConcept(result) : null;
-  const listing = result?.listingData;
-  const artworkPrompt = result?.artworkAssets?.artworkPrompt;
-  const draftArtwork = result ? getLatestArtworkItem(result) : null;
-  const displayArtwork = approvedArtwork || draftArtwork;
-  const artworkPreviewUrl = displayArtwork
-    ? resolveDownloadUrl(displayArtwork.previewUrl || displayArtwork.fileUrl)
-    : null;
+  const printifyStatus = product?.printifyProduct
+    ? `${statusText(product.printifyProduct.status, "Draft prepared")} · product ${product.printifyProduct.productId || "created"} · store ${product.printifyProduct.shopId || "not set"}`
+    : product?.printifyPreview
+      ? "Preview ready · product draft not created"
+      : "Not ready";
 
-  const showProgress = running || Object.keys(stepStatus).length > 0;
+  const etsyStatus = product?.etsyDraft
+    ? `${statusText(product.etsyDraft.state, "Draft Created")} · ${product.etsyDraft.listing_id || "listing ready"}`
+    : product?.aiData?.launchEtsyDraftData
+      ? "Draft data prepared · not created"
+      : "Not ready";
+
+  const nextAction = !product
+    ? opportunities.length
+      ? "Choose an opportunity or enter your own idea, then build the product."
+      : "Start with Find Product Opportunities, or enter a product idea manually."
+    : !launchResult?.completed
+      ? `Retry the failed step: ${launchResult?.failedStep?.label || "workflow"}`
+      : !product.printifyProduct
+        ? "Review the product, approve artwork if needed, then create the Printify product draft."
+        : !product.etsyDraft
+          ? "Create the Etsy draft after you confirm the listing copy, price, tags, and artwork."
+          : "You are ready for human review. Publish only from Etsy/Printify after final approval.";
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
-      <div style={{ maxWidth: "640px", margin: "0 auto", padding: "32px 24px 48px" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            marginBottom: "28px"
-          }}
-        >
-          <div
-            style={{
-              width: "32px",
-              height: "32px",
-              background: "var(--accent)",
-              borderRadius: "8px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "16px",
-              flexShrink: 0
-            }}
-          >
-            ⚡
-          </div>
-          <div>
-            <div
-              style={{
-                fontFamily: "var(--font-display)",
-                fontWeight: 800,
-                fontSize: "16px",
-                lineHeight: 1
-              }}
-            >
-              Microbrand Launcher
-            </div>
-            <div
-              style={{
-                fontSize: "11px",
-                color: "var(--text-muted)",
-                fontFamily: "var(--font-display)",
-                letterSpacing: "0.04em"
-              }}
-            >
-              ONE-CLICK ETSY MICROBRAND CREATOR
-            </div>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: "28px" }}>
-          <h1
-            style={{
-              fontFamily: "var(--font-display)",
-              fontSize: "26px",
-              fontWeight: 800,
-              marginBottom: "8px",
-              color: "var(--text-primary)"
-            }}
-          >
-            Launch a microbrand in one click
-          </h1>
-          <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: 1.55 }}>
-            Describe your niche and vibe — we&apos;ll create the product, generate design concepts,
-            build your Etsy listing, POD prep, design package, artwork brief, and Printify preview
-            automatically.
-          </p>
-        </div>
-
-        {!result && (
-          <form
-            onSubmit={handleGenerate}
-            style={{
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-lg)",
-              padding: "24px",
-              marginBottom: "24px"
-            }}
-          >
-            <div style={{ display: "grid", gap: "16px" }}>
-              <label>
-                <span style={labelStyle}>Niche *</span>
-                <input
-                  type="text"
-                  value={form.niche}
-                  onChange={setField("niche")}
-                  placeholder="e.g. coastal dog moms, vintage gym, quiet luxury"
-                  style={inputStyle}
-                  disabled={running}
-                  required
-                />
-              </label>
-
-              <label>
-                <span style={labelStyle}>Product type *</span>
-                <input
-                  type="text"
-                  value={form.productType}
-                  onChange={setField("productType")}
-                  placeholder="e.g. T-shirt, hoodie, tote bag, sticker"
-                  style={inputStyle}
-                  disabled={running}
-                  required
-                />
-              </label>
-
-              <label>
-                <span style={labelStyle}>Target customer</span>
-                <input
-                  type="text"
-                  value={form.targetCustomer}
-                  onChange={setField("targetCustomer")}
-                  placeholder="e.g. women 25–40 who love minimalist coastal style"
-                  style={inputStyle}
-                  disabled={running}
-                />
-              </label>
-
-              <label>
-                <span style={labelStyle}>Design vibe</span>
-                <input
-                  type="text"
-                  value={form.designVibe}
-                  onChange={setField("designVibe")}
-                  placeholder="e.g. old money, tennis club, minimalist, vintage gym"
-                  style={inputStyle}
-                  disabled={running}
-                />
-              </label>
-
-              <label>
-                <span style={labelStyle}>Notes (optional)</span>
-                <textarea
-                  value={form.notes}
-                  onChange={setField("notes")}
-                  placeholder="Any extra direction — slogans, colors, placement, trends…"
-                  rows={3}
-                  style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }}
-                  disabled={running}
-                />
-              </label>
-            </div>
-
-            {error && !showProgress && (
-              <div
-                style={{
-                  marginTop: "16px",
-                  padding: "12px 14px",
-                  background: "var(--danger-dim)",
-                  border: "1px solid var(--danger)",
-                  borderRadius: "var(--radius-sm)",
-                  color: "var(--danger)",
-                  fontSize: "13px"
-                }}
-              >
-                {error}
+      <main style={{ maxWidth: "1180px", margin: "0 auto", padding: "28px 24px 56px" }}>
+        <header style={{ marginBottom: "22px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: "11px", color: "var(--accent)", fontWeight: 900, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "8px" }}>
+                AI Microbrand Operating System
               </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={running}
-              style={{
-                marginTop: "20px",
-                width: "100%",
-                padding: "14px 20px",
-                background: running ? "var(--bg-tertiary)" : "var(--accent)",
-                color: running ? "var(--text-muted)" : "#0d1117",
-                border: "none",
-                borderRadius: "var(--radius-sm)",
-                fontSize: "15px",
-                fontWeight: 800,
-                fontFamily: "var(--font-display)",
-                letterSpacing: "0.02em",
-                cursor: running ? "default" : "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "10px"
-              }}
-            >
-              {running ? (
-                <>
-                  <span className="spinner" />
-                  Generating microbrand…
-                </>
-              ) : (
-                "Generate Microbrand"
-              )}
+              <h1 style={{ fontFamily: "var(--font-display)", fontSize: "30px", lineHeight: 1.12, fontWeight: 900, marginBottom: "8px" }}>
+                Launch Product
+              </h1>
+              <p style={{ maxWidth: "680px", color: "var(--text-secondary)", fontSize: "14px", lineHeight: 1.55 }}>
+                Find an Etsy/POD opportunity, build the product, review the listing and artwork, then create drafts for human approval.
+              </p>
+            </div>
+            <button type="button" onClick={onOpenDashboard} style={buttonStyle("secondary")}>
+              Advanced Dashboard
             </button>
-          </form>
-        )}
-
-        {showProgress && (
-          <div
-            style={{
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-lg)",
-              padding: "20px 24px",
-              marginBottom: "24px"
-            }}
-          >
-            <div
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: "12px",
-                fontWeight: 800,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: "var(--accent)",
-                marginBottom: "14px"
-              }}
-            >
-              {result ? "Complete" : running ? "Running workflow…" : "Workflow stopped"}
-            </div>
-
-            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: "10px" }}>
-              {WORKFLOW_STEPS.map((step) => {
-                const status = stepStatus[step.key] || "pending";
-                return (
-                  <li
-                    key={step.key}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      fontSize: "14px",
-                      color:
-                        status === "done"
-                          ? "var(--text-primary)"
-                          : status === "error"
-                            ? "var(--danger)"
-                            : status === "active"
-                              ? "var(--accent)"
-                              : "var(--text-muted)"
-                    }}
-                  >
-                    <span style={{ width: "20px", display: "inline-flex", justifyContent: "center" }}>
-                      <StepIcon status={status} />
-                    </span>
-                    {step.label}
-                  </li>
-                );
-              })}
-            </ul>
-
-            {error && (
-              <div
-                style={{
-                  marginTop: "16px",
-                  padding: "12px 14px",
-                  background: "var(--danger-dim)",
-                  border: "1px solid var(--danger)",
-                  borderRadius: "var(--radius-sm)",
-                  fontSize: "13px",
-                  color: "var(--danger)",
-                  lineHeight: 1.5
-                }}
-              >
-                <strong>Failed at:</strong> {failedStep || "Unknown step"}
-                <div style={{ marginTop: "6px" }}>{error}</div>
-              </div>
-            )}
           </div>
-        )}
 
-        {result && (
-          <div
-            style={{
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-lg)",
-              padding: "20px 24px",
-              marginBottom: "24px"
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                flexWrap: "wrap",
-                marginBottom: "8px"
-              }}
-            >
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "16px" }}>
+            <ModeBadge label="AI Text" mode={modes.aiText} />
+            <ModeBadge label="Image Generation" mode={modes.image} />
+            <ModeBadge label="Printify" mode={modes.printify} />
+            <ModeBadge label="Etsy" mode={modes.etsy} />
+          </div>
+        </header>
+
+        <section style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "10px", marginBottom: "18px" }}>
+          {LAUNCH_STAGES.map((stage, index) => {
+            const active =
+              (!product && index <= 1) ||
+              (product && launchResult?.completed && index <= 2) ||
+              (product?.printifyProduct || product?.etsyDraft ? index <= 3 : false);
+            return (
               <div
+                key={stage}
                 style={{
-                  fontFamily: "var(--font-display)",
+                  padding: "12px",
+                  borderRadius: "var(--radius-sm)",
+                  border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                  background: active ? "var(--accent-dim)" : "var(--bg-secondary)",
+                  color: active ? "var(--accent)" : "var(--text-muted)",
                   fontSize: "12px",
-                  fontWeight: 800,
-                  letterSpacing: "0.06em",
-                  textTransform: "uppercase",
-                  color: "var(--accent)"
+                  fontWeight: 900,
+                  fontFamily: "var(--font-display)"
                 }}
               >
-                Artwork Review
+                {index + 1}. {stage}
               </div>
-              {result && inferArtworkImageMode(result) && (
-                <IntegrationModePill mode={inferArtworkImageMode(result)} />
-              )}
-            </div>
-            <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "14px", lineHeight: 1.5 }}>
-              Generate artwork from your prepared brief, preview it here, then approve when you&apos;re happy.
-              Regenerate anytime for a new variation.
-            </p>
+            );
+          })}
+        </section>
 
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "16px" }}>
-              <button
-                type="button"
-                onClick={handleGenerateArtwork}
-                disabled={!!artworkBusy}
-                style={actionBtnStyle("primary")}
-              >
-                {artworkBusy === "generate" ? <span className="spinner" /> : null}
-                {draftArtwork ? "Regenerate Artwork" : "Generate Artwork"}
+        {fallbackActive && (
+          <div style={{ ...cardStyle, border: "1px solid var(--accent)", color: "var(--accent)", marginBottom: "16px" }}>
+            {FALLBACK_NOTICE}
+          </div>
+        )}
+
+        {error && (
+          <div style={{ ...cardStyle, border: "1px solid var(--danger)", color: "var(--danger)", marginBottom: "16px" }}>
+            <div style={{ fontWeight: 900, marginBottom: "8px" }}>Action needs attention</div>
+            <div style={{ fontSize: "13px", lineHeight: 1.45 }}>{error}</div>
+            {launchResult?.failedStep && (
+              <button type="button" onClick={retryLaunch} disabled={running} style={{ ...buttonStyle("primary"), marginTop: "12px" }}>
+                {running ? "Retrying..." : `Retry ${launchResult.failedStep.label}`}
               </button>
-              <button
-                type="button"
-                onClick={handleApproveArtwork}
-                disabled={!!artworkBusy || !draftArtwork || approvedArtwork?.status === "approved"}
-                style={actionBtnStyle("success")}
-              >
-                {artworkBusy === "approve" ? <span className="spinner" /> : null}
-                {approvedArtwork?.status === "approved" ? "Artwork Approved ✓" : "Approve Artwork"}
-              </button>
-            </div>
-
-            {artworkError && (
-              <div
-                style={{
-                  marginBottom: "14px",
-                  padding: "10px 12px",
-                  background: "var(--danger-dim)",
-                  border: "1px solid var(--danger)",
-                  borderRadius: "var(--radius-sm)",
-                  color: "var(--danger)",
-                  fontSize: "13px",
-                  lineHeight: 1.5
-                }}
-              >
-                {artworkError}
-              </div>
-            )}
-
-            {artworkPreviewUrl ? (
-              <div
-                style={{
-                  border: approvedArtwork ? "2px solid var(--success)" : "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  overflow: "hidden",
-                  background: "var(--bg-primary)"
-                }}
-              >
-                <img
-                  src={artworkPreviewUrl}
-                  alt={displayArtwork?.originalFileName || "Generated artwork"}
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    maxHeight: "360px",
-                    objectFit: "contain",
-                    background: "repeating-conic-gradient(#1a1f26 0% 25%, #0d1117 0% 50%) 50% / 16px 16px"
-                  }}
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
-                <div
-                  style={{
-                    padding: "8px 12px",
-                    fontSize: "11px",
-                    color: "var(--text-muted)",
-                    borderTop: "1px solid var(--border)",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "8px",
-                    flexWrap: "wrap"
-                  }}
-                >
-                  <span>{displayArtwork?.originalFileName || displayArtwork?.fileName}</span>
-                  <span>
-                    {displayArtwork?.width && displayArtwork?.height
-                      ? `${displayArtwork.width}×${displayArtwork.height}px`
-                      : null}
-                    {approvedArtwork?.status === "approved" ? " · Approved" : " · Draft"}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div
-                style={{
-                  padding: "24px",
-                  border: "1px dashed var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  textAlign: "center",
-                  color: "var(--text-muted)",
-                  fontSize: "13px"
-                }}
-              >
-                No artwork generated yet — click Generate Artwork to create a preview.
-              </div>
             )}
           </div>
         )}
 
-        {result && (
-          <div
-            style={{
-              background: "var(--bg-secondary)",
-              border: "1px solid var(--accent)",
-              borderRadius: "var(--radius-lg)",
-              padding: "24px",
-              boxShadow: "var(--shadow-lg)"
-            }}
-          >
-            <div
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: "13px",
-                fontWeight: 800,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-                color: "var(--success)",
-                marginBottom: "12px"
-              }}
-            >
-              ✓ Microbrand ready
-            </div>
+        {actionMessage && (
+          <div style={{ ...cardStyle, border: "1px solid var(--success)", color: "var(--success)", marginBottom: "16px" }}>
+            {actionMessage}
+          </div>
+        )}
 
-            <h2
-              style={{
-                fontFamily: "var(--font-display)",
-                fontSize: "20px",
-                fontWeight: 800,
-                marginBottom: "16px",
-                color: "var(--text-primary)"
-              }}
-            >
-              {result.title}
-            </h2>
+        <section style={{ ...cardStyle, marginBottom: "18px" }}>
+          <div style={{ fontFamily: "var(--font-display)", fontWeight: 900, fontSize: "16px", marginBottom: "8px" }}>
+            What should I do next?
+          </div>
+          <div style={{ color: "var(--text-secondary)", fontSize: "14px", lineHeight: 1.5 }}>
+            {nextAction}
+          </div>
+        </section>
 
-            <div style={{ display: "grid", gap: "12px", fontSize: "14px" }}>
-              {concept?.conceptName && (
+        <div style={{ display: "grid", gridTemplateColumns: product ? "0.95fr 1.05fr" : "1fr", gap: "18px", alignItems: "start" }}>
+          <div style={{ display: "grid", gap: "18px" }}>
+            <section style={cardStyle}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center", marginBottom: "14px", flexWrap: "wrap" }}>
                 <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "11px", fontFamily: "var(--font-display)", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                    Selected concept
-                  </span>
-                  <div style={{ color: "var(--text-primary)", marginTop: "4px" }}>{concept.conceptName}</div>
-                  {concept.slogan && (
-                    <div style={{ color: "var(--text-secondary)", fontSize: "13px", marginTop: "2px" }}>
-                      &ldquo;{concept.slogan}&rdquo;
-                    </div>
-                  )}
+                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: "18px", fontWeight: 900, marginBottom: "4px" }}>
+                    1. Find Product Opportunity
+                  </h2>
+                  <p style={{ color: "var(--text-secondary)", fontSize: "13px", lineHeight: 1.5 }}>
+                    Use trend scanner data or enter an idea manually.
+                  </p>
+                </div>
+                <button type="button" onClick={loadOpportunities} disabled={opportunityLoading || running} style={buttonStyle("primary")}>
+                  {opportunityLoading ? "Finding..." : "Find Product Opportunities"}
+                </button>
+              </div>
+
+              {opportunityMeta && (
+                <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "12px" }}>
+                  Analyzed {opportunityMeta.trendScanCount} trend scanner entr{opportunityMeta.trendScanCount === 1 ? "y" : "ies"} · AI opportunity discovery: {opportunityMeta.mode}
                 </div>
               )}
 
-              {listing?.etsyTitle && (
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "11px", fontFamily: "var(--font-display)", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                    Etsy title
-                  </span>
-                  <div style={{ color: "var(--text-primary)", marginTop: "4px" }}>{listing.etsyTitle}</div>
+              {opportunities.length > 0 && (
+                <div style={{ display: "grid", gap: "12px", marginBottom: "16px" }}>
+                  {opportunities.map((opportunity) => (
+                    <OpportunityCard
+                      key={opportunity.id}
+                      opportunity={opportunity}
+                      selected={selectedOpportunity?.id === opportunity.id}
+                      disabled={running}
+                      onSelect={() => setSelectedOpportunity(opportunity)}
+                      onBuild={() => {
+                        setSelectedOpportunity(opportunity);
+                        runLaunch("opportunity");
+                      }}
+                    />
+                  ))}
                 </div>
               )}
 
-              {(listing?.pricingRecommendation?.retailPrice != null || concept?.estimatedMargin != null) && (
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "11px", fontFamily: "var(--font-display)", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                    Pricing / margin
-                  </span>
-                  <div style={{ color: "var(--text-primary)", marginTop: "4px" }}>
-                    {listing?.pricingRecommendation?.retailPrice != null && (
-                      <span>Suggested price ${listing.pricingRecommendation.retailPrice}</span>
-                    )}
-                    {concept?.estimatedMargin != null && (
-                      <span>
-                        {listing?.pricingRecommendation?.retailPrice != null ? " · " : ""}
-                        Est. margin {concept.estimatedMargin}%
-                      </span>
-                    )}
-                  </div>
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: "16px" }}>
+                <h3 style={{ fontFamily: "var(--font-display)", fontSize: "14px", fontWeight: 900, marginBottom: "10px" }}>
+                  Or enter your own product idea
+                </h3>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
+                  <label style={{ gridColumn: "1 / -1" }}>
+                    <span style={labelStyle}>Product idea</span>
+                    <input
+                      value={manualIdea.idea}
+                      onChange={setManualField("idea")}
+                      placeholder="Example: pickleball social club sweatshirt for women over 40"
+                      style={inputStyle}
+                    />
+                  </label>
+                  <label>
+                    <span style={labelStyle}>Niche</span>
+                    <input value={manualIdea.niche} onChange={setManualField("niche")} placeholder="Pickleball gifts" style={inputStyle} />
+                  </label>
+                  <label>
+                    <span style={labelStyle}>Product type</span>
+                    <input value={manualIdea.productType} onChange={setManualField("productType")} placeholder="POD sweatshirt" style={inputStyle} />
+                  </label>
+                  <label style={{ gridColumn: "1 / -1" }}>
+                    <span style={labelStyle}>Target customer</span>
+                    <input value={manualIdea.targetCustomer} onChange={setManualField("targetCustomer")} placeholder="Who buys this?" style={inputStyle} />
+                  </label>
+                  <label style={{ gridColumn: "1 / -1" }}>
+                    <span style={labelStyle}>Notes</span>
+                    <textarea value={manualIdea.notes} onChange={setManualField("notes")} rows={3} placeholder="Style, audience, trend evidence, or constraints" style={{ ...inputStyle, resize: "vertical" }} />
+                  </label>
                 </div>
-              )}
+                <button
+                  type="button"
+                  disabled={running || !manualIdea.idea.trim()}
+                  onClick={() => runLaunch("manual")}
+                  style={buttonStyle("primary")}
+                >
+                  {running ? "Building..." : "Build Product From Idea"}
+                </button>
+              </div>
+            </section>
 
-              {artworkPrompt && (
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "11px", fontFamily: "var(--font-display)", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                    Artwork prompt
-                  </span>
+            {(running || launchResult?.steps?.length > 0) && (
+              <section style={cardStyle}>
+                <h2 style={{ fontFamily: "var(--font-display)", fontSize: "18px", fontWeight: 900, marginBottom: "12px" }}>
+                  2. Build Product
+                </h2>
+                <ProgressList steps={launchResult?.steps || []} failedStep={launchResult?.failedStep} />
+              </section>
+            )}
+          </div>
+
+          {product && (
+            <section style={cardStyle}>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "18px", fontWeight: 900, marginBottom: "14px" }}>
+                3. Review Product
+              </h2>
+
+              <div style={{ display: "grid", gap: "14px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: "16px", alignItems: "start" }}>
                   <div
                     style={{
-                      marginTop: "6px",
-                      padding: "10px 12px",
+                      minHeight: "180px",
                       background: "var(--bg-primary)",
                       border: "1px solid var(--border)",
                       borderRadius: "var(--radius-sm)",
-                      fontSize: "12px",
-                      color: "var(--text-secondary)",
-                      lineHeight: 1.55,
-                      whiteSpace: "pre-wrap",
-                      maxHeight: "140px",
-                      overflow: "auto"
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      overflow: "hidden"
                     }}
                   >
-                    {artworkPrompt}
-                  </div>
-                </div>
-              )}
-
-              {approvedArtwork && (
-                <div>
-                  <span style={{ color: "var(--text-muted)", fontSize: "11px", fontFamily: "var(--font-display)", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                    Approved artwork
-                  </span>
-                  <div
-                    style={{
-                      marginTop: "8px",
-                      border: "2px solid var(--success)",
-                      borderRadius: "var(--radius-sm)",
-                      overflow: "hidden",
-                      background: "var(--bg-primary)"
-                    }}
-                  >
-                    {artworkPreviewUrl ? (
-                      <img
-                        src={artworkPreviewUrl}
-                        alt={approvedArtwork.originalFileName || "Approved artwork"}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          maxHeight: "200px",
-                          objectFit: "contain"
-                        }}
-                      />
+                    {image?.url ? (
+                      <img src={image.url} alt={product.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     ) : (
-                      <div style={{ padding: "12px", fontSize: "13px", color: "var(--text-secondary)" }}>
-                        {approvedArtwork.originalFileName || approvedArtwork.fileName || "Artwork approved"}
-                      </div>
+                      <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>No image yet</span>
                     )}
                   </div>
-                </div>
-              )}
-            </div>
 
-            <div style={{ display: "flex", gap: "10px", marginTop: "24px", flexWrap: "wrap" }}>
-              {typeof onOpenDashboard === "function" && (
-                <button
-                  type="button"
-                  onClick={onOpenDashboard}
-                  style={{
-                    padding: "12px 18px",
-                    background: "var(--accent)",
-                    color: "#0d1117",
-                    border: "none",
-                    borderRadius: "var(--radius-sm)",
-                    fontSize: "14px",
-                    fontWeight: 800,
-                    cursor: "pointer"
-                  }}
-                >
-                  Open Full Dashboard
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  resetRun();
-                  setForm({
-                    niche: "",
-                    productType: "",
-                    targetCustomer: "",
-                    designVibe: "",
-                    notes: ""
-                  });
-                }}
-                style={{
-                  padding: "12px 18px",
-                  background: "var(--bg-tertiary)",
-                  color: "var(--text-secondary)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  fontSize: "14px",
-                  fontWeight: 700,
-                  cursor: "pointer"
-                }}
-              >
-                Create another
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+                  <div>
+                    <ReviewField label="Product Name" value={product.title} />
+                    <ReviewField label="Opportunity Score" value={getOpportunityScore(product)} />
+                    <ReviewField label="Target Customer" value={getTargetCustomer(product)} />
+                    {selectedConcept && <ReviewField label="Recommended Concept" value={selectedConcept.conceptName} />}
+                  </div>
+                </div>
+
+                <ReviewField label="Etsy Title" value={listing.etsyTitle || product.title} />
+                <ReviewField label="Etsy Description" value={listing.etsyDescription || product.description} pre />
+                <div>
+                  <div style={labelStyle}>Tags</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    {(listing.etsyTags || []).map((tag) => (
+                      <span
+                        key={tag}
+                        style={{
+                          padding: "4px 9px",
+                          background: "var(--accent-dim)",
+                          border: "1px solid rgba(240,165,0,0.25)",
+                          borderRadius: "999px",
+                          color: "var(--accent)",
+                          fontSize: "12px"
+                        }}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "10px" }}>
+                  <SmallReviewStat label="Price" value={getPrice(product)} />
+                  <SmallReviewStat label="Margin Estimate" value={getMargin(product)} />
+                  <SmallReviewStat label="Printify Status" value={printifyStatus} />
+                  <SmallReviewStat label="Etsy Status" value={etsyStatus} />
+                </div>
+              </div>
+
+              <section style={{ borderTop: "1px solid var(--border)", marginTop: "18px", paddingTop: "16px" }}>
+                <h2 style={{ fontFamily: "var(--font-display)", fontSize: "18px", fontWeight: 900, marginBottom: "10px" }}>
+                  4. Publish Product
+                </h2>
+                <p style={{ color: "var(--text-secondary)", fontSize: "13px", lineHeight: 1.5, marginBottom: "12px" }}>
+                  Create drafts only after review. Nothing is automatically published.
+                </p>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  {image?.id && image.status !== "approved" && (
+                    <button
+                      type="button"
+                      disabled={!!actionBusy}
+                      onClick={approvePrimaryArtwork}
+                      style={buttonStyle("secondary")}
+                    >
+                      {actionBusy === "approveArtwork" ? "Approving..." : "Approve Artwork"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!!actionBusy || !product.printifyPreview}
+                    onClick={() =>
+                      runReviewAction(
+                        "printify",
+                        createPrintifyProduct,
+                        "Printify product draft is prepared. It has not been published."
+                      )
+                    }
+                    style={buttonStyle("primary")}
+                  >
+                    {actionBusy === "printify" ? "Creating..." : "Create Printify Product"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!actionBusy || !product.aiData}
+                    onClick={() =>
+                      runReviewAction(
+                        "etsy",
+                        createRealEtsyDraft,
+                        "Etsy draft created. Publishing still requires explicit approval."
+                      )
+                    }
+                    style={buttonStyle("success")}
+                  >
+                    {actionBusy === "etsy" ? "Creating..." : "Create Etsy Draft"}
+                  </button>
+                </div>
+                {product.printifyProduct && (
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "10px" }}>
+                    Printify draft status: {product.printifyProduct.status || "draft"} · Product ID: {product.printifyProduct.productId || "n/a"} · Store ID: {product.printifyProduct.shopId || "n/a"}
+                  </div>
+                )}
+                {product.etsyDraft && (
+                  <div style={{ fontSize: "12px", color: "var(--success)", marginTop: "10px" }}>
+                    Draft Created · Ready To Publish after human approval.
+                  </div>
+                )}
+              </section>
+
+              <AdvancedDetails product={product} launchResult={launchResult} />
+            </section>
+          )}
+        </div>
+      </main>
     </div>
   );
 };
+
+function ReviewField({ label, value, pre }) {
+  return (
+    <div style={{ marginBottom: "10px" }}>
+      <div style={labelStyle}>{label}</div>
+      <div
+        style={{
+          color: "var(--text-primary)",
+          fontSize: "14px",
+          lineHeight: 1.55,
+          whiteSpace: pre ? "pre-wrap" : "normal",
+          maxHeight: pre ? "220px" : undefined,
+          overflow: pre ? "auto" : undefined,
+          background: pre ? "var(--bg-primary)" : "transparent",
+          border: pre ? "1px solid var(--border)" : "none",
+          borderRadius: pre ? "var(--radius-sm)" : 0,
+          padding: pre ? "10px" : 0
+        }}
+      >
+        {value || "Not available"}
+      </div>
+    </div>
+  );
+}
+
+function SmallReviewStat({ label, value }) {
+  return (
+    <div style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "12px" }}>
+      <div style={labelStyle}>{label}</div>
+      <div style={{ color: "var(--text-primary)", fontSize: "13px", lineHeight: 1.45, fontWeight: 800 }}>
+        {value || "Not ready"}
+      </div>
+    </div>
+  );
+}
 
 export default MicrobrandLauncher;

@@ -8,6 +8,7 @@
 const OpenAI = require("openai");
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o";
+const FALLBACK_NOTICE = "Using fallback templates because AI generation is unavailable.";
 
 /** @returns {OpenAI|null} */
 const getClient = () => {
@@ -27,7 +28,10 @@ const generateProductContent = async (title, description) => {
     return await generateWithOpenAI(title, description);
   }
   console.log("ℹ️  No OpenAI key found — using mock data. See README for OPENAI_API_KEY.");
-  return generateMockData(title, description);
+  return withGenerationMeta(generateMockData(title, description), {
+    mode: "mock",
+    reason: "NO_OPENAI_KEY"
+  });
 };
 
 // ============================================================
@@ -277,14 +281,33 @@ const generateWithOpenAI = async (title, description) => {
     });
 
     console.log(`✅ OpenAI generation OK (model ${OPENAI_MODEL}) for: "${String(title).slice(0, 60)}..."`);
-    return normalized;
+    return withGenerationMeta(normalized, {
+      mode: "live",
+      model: OPENAI_MODEL
+    });
   } catch (err) {
     const msg = err?.message || String(err);
     console.error("❌ OpenAI generation failed — falling back to mock data:", msg);
     if (err?.status) console.error("   HTTP status:", err.status);
-    return generateMockData(title, description);
+    return withGenerationMeta(generateMockData(title, description), {
+      mode: "mock",
+      reason: "OPENAI_FAILED",
+      error: msg
+    });
   }
 };
+
+function withGenerationMeta(data, meta) {
+  return {
+    ...data,
+    generationMode: meta.mode,
+    generationProvider: meta.mode === "live" ? "openai" : "template",
+    generationModel: meta.model || null,
+    fallbackReason: meta.reason || null,
+    fallbackError: meta.error ? "OpenAI request failed; see backend logs for diagnostics." : null,
+    fallbackNotice: meta.mode === "mock" ? FALLBACK_NOTICE : null
+  };
+}
 
 // ============================================================
 // MOCK Data Generator (no API key or OpenAI failure fallback)
